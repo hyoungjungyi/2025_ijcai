@@ -167,33 +167,40 @@ def get_complete_tickers(tickers, start="2000-01-01", end="2023-09-01", output_f
 
 
 
-
-file_path_kospi = '/home/hyunjung/projects/2025_ijcai/data/kospi_data.csv'
+file_path_kospi = '/home/hyunjung/projects/2025_ijcai/ijcai2025/data/kospi_ticker.csv'
 df_kospi = pd.read_csv(file_path_kospi)
-kospi_ticker_list = df_kospi['Issue code'].astype(str).tolist()[:20]
+kospi_ticker_list = df_kospi['Issue code'].astype(str).tolist()
 kospi_ticker_list = [ticker + ".KS" for ticker in kospi_ticker_list]
 
 
-file_path_nasdaq = '/home/hyunjung/projects/2025_ijcai/data/nasdaq_final.csv'
+file_path_nasdaq = '/home/hyunjung/projects/2025_ijcai/ijcai2025/data/nasdaq_ticker.csv'
 df_nasdaq = pd.read_csv(file_path_nasdaq)
-nasdaq_ticker_list = df_nasdaq['Symbol'].astype(str).tolist()[:20]
+nasdaq_ticker_list = df_nasdaq['Symbol'].astype(str).tolist()
 
 
 complete_kospi_tickers = get_complete_tickers(kospi_ticker_list)
 complete_nasdaq_tickers = get_complete_tickers(nasdaq_ticker_list)
-pd.DataFrame(complete_kospi_tickers, columns=["Ticker"]).to_csv("complete_kospi_tickers.csv", index=False)
-pd.DataFrame(complete_nasdaq_tickers, columns=["Ticker"]).to_csv("complete_nasdaq_tickers.csv", index=False)
-all_tickers = complete_kospi_tickers + complete_nasdaq_tickers
 
 
-config = {
-    'output_path': 'complete_stock_data.csv',
-    'start_date': '2000-01-03',
-    'end_date': '2023-12-29',
-    'tickers': all_tickers,
-    'indicator': 'alpha158'
-}
 
+config_list = [
+    {
+        'output_path': './data/complete_kospi_data.csv',
+        'start_date': '2000-01-03',
+        'end_date': '2023-12-29',
+        'tickers': complete_kospi_tickers,
+        'indicator': 'alpha158'
+    },
+    {
+        'output_path': './data/complete_nasdaq_data.csv',
+        'start_date': '2000-01-03',
+        'end_date': '2023-12-29',
+        'tickers': complete_nasdaq_tickers,
+        'indicator': 'alpha158'
+    }
+]
 
-preprocessor = YfinancePreprocessor(**config)
-preprocessor.run() 
+for config in config_list:
+    preprocessor = YfinancePreprocessor(**config)
+    preprocessor.run()
+
