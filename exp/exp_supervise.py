@@ -585,12 +585,14 @@ class Exp_Supervise(Exp_Basic):
 
 
         # Initialize investment_dates dynamically
-        investment_dates = []
+        investment_dates = [unique_dates[0]]
+        step_sizes = []
         index = 0
         self.moe_model.eval()
 
         with torch.no_grad():
-            while index < len(unique_dates) - self.args.seq_len- 20 - 1:
+
+            while index < len(unique_dates) - self.args.seq_len - self.args.pred_len -1:
 
                 batch_x, batch_y, batch_x_mark, batch_y_mark, ground_true = test_data[index]
 
@@ -615,6 +617,11 @@ class Exp_Supervise(Exp_Basic):
 
                 # Determine step size based on gating choice
                 step_size = [1, 5, 20][gating_choice]
+                step_sizes.append(step_size)
+
+                # Add the current investment date
+                current_date = unique_dates[index + self.args.seq_len]
+                investment_dates.append(current_date)
 
                 # Simulate investment using the selected expert
                 pred = outputs.cpu().numpy()  # [batch, num_stocks]
@@ -657,7 +664,10 @@ class Exp_Supervise(Exp_Basic):
                 # Move index forward by step_size
                 index += step_size
 
-
+        # Calculate dynamic annual factor
+        total_days_in_backtest = len(unique_dates) - self.args.seq_len - 20 - 1
+        average_step_size = sum(step_sizes) / len(step_sizes)
+        dynamic_annual_factor = total_days_in_backtest / average_step_size
 
         # Save results
         folder_path = './results/' + setting + '/'
@@ -682,9 +692,10 @@ class Exp_Supervise(Exp_Basic):
             fee_rate=self.args.fee_rate,
             external_portfolio=portfolio_values,
             external_dates=investment_dates,
-            pred_len=pred_len,
-            total_periods=test_data.raw_gt.index.get_level_values('date').nunique(),
-            folder_path=folder_path
+            pred_len=None,
+            total_periods=None,
+            folder_path=folder_path,
+            dynamic_annual_factor = dynamic_annual_factor
         )
         print("MOE Backtest completed. Results saved to:", folder_path)
 

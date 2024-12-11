@@ -367,32 +367,6 @@ class Dataset_moe(Dataset):
         else:
             raise ValueError("Invalid value for timeenc. Must be 0 or 1.")
 
-    # def __getitem__(self, index):
-    #     """
-    #     Fetch data for seq_len consecutive dates, including all tics for each date.
-    #     """
-    #     unique_dates = self.df_stamp['date'].unique()
-    #     start_date = unique_dates[index]
-    #     end_date = unique_dates[min(index + self.seq_len, len(unique_dates) - 1)]
-    #
-    #     stamp_mask = (self.df_stamp['date'] >= start_date) & (self.df_stamp['date'] < end_date)
-    #     stamp_indices = np.where(stamp_mask)[0]
-    #
-    #     seq_mask = (self.data_x.index.get_level_values("date") >= start_date) & \
-    #                (self.data_x.index.get_level_values("date") < end_date)
-    #     seq_x_data = self.data_x[seq_mask]
-    #     seq_x_grouped = seq_x_data.groupby(level='date')
-    #     seq_x = np.stack([group.values for _, group in seq_x_grouped], axis=1)
-    #
-    #     seq_x_mark = np.expand_dims(self.data_stamp[stamp_indices], axis=0)
-    #     seq_x_mark = np.tile(seq_x_mark, (seq_x.shape[0], 1, 1))
-    #
-    #     label = self.moe_label.iloc[index]
-    #
-    #     return seq_x, seq_x_mark, label
-    #
-    # def __len__(self):
-    #     return len(self.df_stamp) - self.seq_len - self.pred_len - 1
 
     def __getitem__(self, index):
         """

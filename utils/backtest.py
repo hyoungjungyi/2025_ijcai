@@ -5,13 +5,15 @@ import numpy as np
 import os
 import matplotlib.dates as mdates
 import seaborn as sns
-def calculate_portfolio_metrics(portfolio_values, risk_free_rate=0.01, freq="daily", pred_len=None, total_periods=None):
+def calculate_portfolio_metrics(portfolio_values, risk_free_rate=0.01, freq="daily", pred_len=None, total_periods=None,dynamic_annual_factor=None):
     """
     Calculate common portfolio metrics for performance evaluation.
     Supports custom pred_len and total_periods for non-standard frequencies.
     """
     # Determine annualization factor
-    if pred_len is not None and total_periods is not None:
+    if dynamic_annual_factor is not None:
+        annual_factor = dynamic_annual_factor
+    elif pred_len is not None and total_periods is not None:
         annual_factor = total_periods / pred_len
     else:
         if freq == "daily":
@@ -21,7 +23,8 @@ def calculate_portfolio_metrics(portfolio_values, risk_free_rate=0.01, freq="dai
         elif freq == "monthly":
             annual_factor = 12
         else:
-            raise ValueError("Frequency must be 'daily', 'weekly', 'monthly', or pred_len/total_periods must be provided.")
+            raise ValueError(
+                "Frequency must be 'daily', 'weekly', 'monthly', or pred_len/total_periods must be provided.")
 
     # Periodic returns
     periodic_returns = np.diff(portfolio_values) / portfolio_values[:-1]
@@ -71,7 +74,7 @@ def fetch_index_data(index, start_date, end_date):
     return index
 
 
-def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external_portfolio=None,external_dates=None,pred_len=None,total_periods=None,folder_path=None ):
+def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external_portfolio=None,external_dates=None,pred_len=None,total_periods=None,folder_path=None,dynamic_annual_factor=None ):
     """Run backtest for the given data and date range."""
     # Filter data for the given date range
     data = data[(data['date'] >= start_date) & (data['date'] <= end_date)]
@@ -219,7 +222,7 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
         daily_portfolio_values.append(daily_portfolio_value)
 
     if external_portfolio is not None:
-        external_metrics = calculate_portfolio_metrics(external_portfolio,  pred_len=pred_len, total_periods=total_periods)
+        external_metrics = calculate_portfolio_metrics(external_portfolio,  pred_len=pred_len, total_periods=total_periods,dynamic_annual_factor=dynamic_annual_factor)
     else:
         external_metrics = None
 

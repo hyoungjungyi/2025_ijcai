@@ -18,8 +18,8 @@ def main():
     parser.add_argument('--moe_train', action='store_true', help='Enable MOE training after expert training',default=False)
     # data loader
     parser.add_argument('--data',type=str,default='custom')
-    parser.add_argument('--root_path', type=str, default='./data/dj30/',help='options = [dj30, nasdaq,kospi]')
-    parser.add_argument('--data_path', type=str, default='data.csv',help='options = [dj30, nasdaq,kospi]')
+    parser.add_argument('--root_path', type=str, default='./data/dj30/',help='options = [dj30, nasdaq,kospi,csi300]')
+    parser.add_argument('--data_path', type=str, default='data.csv',help='options = [general,alpha158]')
 
     parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='location of model checkpoints')
 
@@ -98,8 +98,8 @@ def main():
         if args.train_method == 'Supervise':
             if args.moe_train:
                 exp = Exp_Supervise(args)
-                # exp.train_expert()
-                # exp.train_moe()
+                exp.train_expert()
+                exp.train_moe()
                 print('>>>>>>>ex_pert_backtesting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
                 exp.moe_backtest(setting)
             else:
