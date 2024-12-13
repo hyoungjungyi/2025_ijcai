@@ -46,9 +46,11 @@ class Dataset_Custom(Dataset):
 
     def __read_data__(self):
         df_raw = pd.read_csv(os.path.join(self.root_path,self.data_path),index_col=False)
+        df_raw = df_raw.dropna()
         df_raw['date'] = pd.to_datetime(df_raw['date'])
         #dependent dataset it should be fixed
-        df_raw = df_raw.set_index(['date','tic']).sort_index().iloc[:,1:]
+        df_raw = df_raw.set_index(['date', 'tic']).sort_index()
+        # df_raw = df_raw.set_index(['date','tic']).sort_index().iloc[:,1:] # for dj30
 
         # Split data by year
         train_data = df_raw[df_raw.index.get_level_values('date').year < self.valid_year]
@@ -156,7 +158,11 @@ class Dataset_Custom(Dataset):
         seq_mask = (self.data_x.index.get_level_values("date") >= start_date) & (self.data_x.index.get_level_values("date") < end_date)
         seq_x_data= self.data_x[seq_mask]
         seq_x_grouped = seq_x_data.groupby(level='date')
-        seq_x = np.stack([group.values for _, group in seq_x_grouped], axis=1)
+        try:
+            seq_x = np.stack([group.values for _, group in seq_x_grouped], axis=1)
+        except ValueError as e:
+            print(f"Error stacking arrays: {e}")
+        # seq_x = np.stack([group.values for _, group in seq_x_grouped], axis=1)
         seq_x_mark = np.expand_dims(self.data_stamp[stamp_indices], axis=0)
         seq_x_mark = np.tile(seq_x_mark, (seq_x.shape[0], 1, 1))
 

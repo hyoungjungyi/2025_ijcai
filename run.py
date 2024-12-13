@@ -17,9 +17,12 @@ def main():
     parser.add_argument('--train_method',type= str,default='Supervise',help='options = [Reinforce, Supervise]')
     parser.add_argument('--moe_train', action='store_true', help='Enable MOE training after expert training',default=False)
     # data loader
-    parser.add_argument('--data',type=str,default='custom')
-    parser.add_argument('--root_path', type=str, default='./data/dj30/',help='options = [dj30, nasdaq,kospi,csi300]')
-    parser.add_argument('--data_path', type=str, default='data.csv',help='options = [general,alpha158]')
+    parser.add_argument('--market',type=str,default='nasdaq',help='options = [dj30,nasdaq,kospi,csi300,sp500]')
+    parser.add_argument('--data', type=str, default='general', help='options = [general,alpha158]')
+    parser.add_argument('--root_path', type=str, help='root path for the dataset')
+    parser.add_argument('--data_path', type=str, help='data path for the dataset')
+    # parser.add_argument('--root_path', type=str, default='./data/kospi/',help='options = [dj30,nasdaq,kospi,csi300]')
+    # parser.add_argument('--data_path', type=str, default='kospi_general_data.csv',help='options = [general,alpha158]')
 
     parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='location of model checkpoints')
 
@@ -53,7 +56,7 @@ def main():
     #optimization
     parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
     parser.add_argument('--itr', type=int, default=1, help='experiments times')
-    parser.add_argument('--train_epochs', type=int, default=20, help='train epochs')
+    parser.add_argument('--train_epochs', type=int, default=1, help='train epochs')
     parser.add_argument('--patience', type=int, default=3, help='early stopping patience')
     parser.add_argument('--learning_rate', type=float, default=0.0002, help='optimizer learning rate')
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
@@ -66,15 +69,30 @@ def main():
 
     #portoflio
     parser.add_argument('--fee_rate', type=float, default=0.0001, help='tax fee rate')
-    parser.add_argument('--num_stocks', type=int, default=29, help='number of stocks to include in the portfolio')
+    parser.add_argument('--select_factor', type=int, default=2, help='select factor to determine the number of stocks in portfolio')
+    parser.add_argument('--num_stocks', type=int ,help='number of stocks to include in the portfolio')
     args = parser.parse_args()
+
+    # Automatically set root_path and data_path based on market and data arguments
+    if not args.root_path:
+        args.root_path = f'./data/{args.market}/'
+    if not args.data_path:
+        args.data_path = f'{args.market}_{args.data}_data.csv'
+
+    print(f"Set root_path: {args.root_path}")
+    print(f"Set data_path: {args.data_path}")
+
     # Automatically determine `enc_in` and `dec_in` based on input data
     data_file_path = f"{args.root_path}/{args.data_path}"
     try:
         data = pd.read_csv(data_file_path)
-        num_features = data.shape[1] - 3  # Exclude datetime or index column ,Unnamed:0,date,tic
+        num_features = data.shape[1] - 2  # Exclude datetime or index column date,tic (Unnamed:0)
         args.enc_in = num_features if args.enc_in is None else args.enc_in
         args.dec_in = num_features if args.dec_in is None else args.dec_in
+
+        # Set num_stocks based on unique tickers
+        args.num_stocks = len(data['tic'].unique()) // args.select_factor
+        print(f"Detected {num_features} input features and select {args.num_stocks}  among {len(data['tic'].unique())} unique stocks. Setting enc_in={args.enc_in}, dec_in={args.dec_in}.")
         print(f"Detected {num_features} input features. Setting enc_in={args.enc_in}, dec_in={args.dec_in}.")
     except Exception as e:
         print(f"Error loading data from {data_file_path}: {e}")
@@ -93,7 +111,7 @@ def main():
     random.seed(fix_seed)
     torch.manual_seed(fix_seed)
     np.random.seed()
-    setting = f'{args.data}_{args.model}_sl({args.seq_len})_pl({args.pred_len})'
+    setting = f'{args.market}_{args.data}_num_stocks({args.num_stocks})_sl({args.seq_len})_pl({args.pred_len})'
     if args.is_training:
         if args.train_method == 'Supervise':
             if args.moe_train:

@@ -143,6 +143,7 @@ class Exp_Supervise(Exp_Basic):
             epoch_time = time.time()
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark,ground_true) in enumerate(train_loader):
                 iter_count += 1
+
                 model_optim.zero_grad()
 
                 batch_x = batch_x.squeeze(0).float().to(self.device)
@@ -181,13 +182,13 @@ class Exp_Supervise(Exp_Basic):
                     loss = criterion(outputs, ground_true)
                     train_loss.append(loss.item())
 
-                if (i + 1) % 100 == 0:
-                    # print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
-                    speed = (time.time() - time_now) / iter_count
-                    left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
-                    # print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
-                    iter_count = 0
-                    time_now = time.time()
+                # if (i + 1) % 100 == 0:
+                #     # print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
+                #     speed = (time.time() - time_now) / iter_count
+                #     left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
+                #     # print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                #     iter_count = 0
+                #     time_now = time.time()
 
                 if self.args.use_amp:
                     scaler.scale(loss).backward()
@@ -538,9 +539,23 @@ class Exp_Supervise(Exp_Basic):
         # Use run_backtest for comparisons
         start_date = str(dates[0])
         end_date = str(dates[-1])
-        back_test_data = pd.read_csv('./data/dj30/data.csv', index_col=0)
+        back_test_data = pd.read_csv(os.path.join(self.args.root_path, self.args.data_path))
+        # back_test_data = pd.read_csv('./data/dj30/data.csv', index_col=0)
         back_test_data['date'] = pd.to_datetime(back_test_data['date'])
-        index_data = fetch_index_data('^DJI', '2012-01-01', '2022-01-01')
+        if self.args.market == 'kospi':
+            index_name = '^KS11'  # KOSPI Index
+        elif self.args.market == 'dj30':
+            index_name = '^DJI'  # Dow Jones Industrial Average
+        elif self.args.market == 'sp500':
+            index_name = '^GSPC'  # S&P 500 Index
+        elif self.args.market == 'nasdaq':
+            index_name = '^IXIC'  # NASDAQ Composite
+        elif self.args.market == 'csi300':
+            index_name = '000300.SS'  # CSI 300 Index
+        else:
+            raise ValueError(f"Unsupported market: {self.args.market}")
+
+        index_data = fetch_index_data(index_name, '2012-01-01', '2024-01-01')
 
         run_backtest(
             data=back_test_data,  # Your dataset as DataFrame

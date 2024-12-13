@@ -20,11 +20,12 @@ class YfinancePreprocessor:
         df["zhigh"] = df["high"] / (df["close"] + eps) - 1
         df["zlow"] = df["low"] / (df["close"] + eps) - 1
         df["zadjcp"] = df["adjclose"] / (df["close"] + eps) - 1
-        df["zclose"] = df["close"].pct_change()
+        df["zclose"] = df.groupby('tic')['close'].pct_change()
 
         # zd_* 컬럼 생성
         for period in periods:
-            df[f'zd_{period}'] = df['close'].pct_change(periods=period)
+            rolling_mean = df.groupby('tic')['close'].transform(lambda x: x.rolling(window=period).mean())
+            df[f'zd_{period}'] = rolling_mean / df['close'] - 1
 
         return df
 
@@ -51,19 +52,20 @@ class YfinancePreprocessor:
 
 
 # 기존 KOSPI 데이터 처리 설정
+
 config_list = [
     {
-        'input_path': 'data/raw_kospi_data.csv',
-        'output_path': 'data/simple_kospi_data.csv'
+        'input_path': 'raw_kospi_data.csv',
+        'output_path': 'kospi_general_data.csv'
 
     },
     {
-        'input_path': 'data/raw_nasdaq_data.csv',
-        'output_path': 'data/simple_nasdaq_data.csv'
+        'input_path': 'raw_nasdaq_data.csv',
+        'output_path': 'nasdaq_general_data.csv'
 
     }
 ]
-    
+
 
 # 데이터 처리 실행
 for config in config_list:

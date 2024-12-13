@@ -17,18 +17,19 @@ def get_complete_tickers(tickers, start="2000-01-01", end="2023-09-01"):
         if all_years_present:
             valid_tickers.append(ticker)
         else:
+
             print(f"{ticker} does not have complete data from 2000 to 2023.")
 
     return valid_tickers
 
 
 # KOSPI 및 NASDAQ 티커 데이터 로드
-file_path_kospi = 'data/kospi_ticker.csv'
+file_path_kospi = 'kospi_ticker.csv'
 df_kospi = pd.read_csv(file_path_kospi)
-kospi_ticker_list = df_kospi['Ticker'].astype(str).tolist()
+kospi_ticker_list = df_kospi['Tic'].astype(str).tolist()
 kospi_ticker_list = [ticker + ".KS" for ticker in kospi_ticker_list]
 
-file_path_nasdaq = 'data/nasdaq_ticker.csv'
+file_path_nasdaq = 'nasdaq_ticker.csv'
 df_nasdaq = pd.read_csv(file_path_nasdaq)
 nasdaq_ticker_list = df_nasdaq['Symbol'].astype(str).tolist()
 
@@ -38,5 +39,5 @@ complete_kospi_tickers = get_complete_tickers(kospi_ticker_list)
 complete_nasdaq_tickers = get_complete_tickers(nasdaq_ticker_list)
 
 # 결과를 CSV 파일로 저장
-pd.DataFrame(complete_kospi_tickers, columns=["ticker"]).to_csv('data/complete_kospi_tickers.csv', index=False)
-pd.DataFrame(complete_nasdaq_tickers, columns=["ticker"]).to_csv('data/complete_nasdaq_tickers.csv', index=False)
+pd.DataFrame(complete_kospi_tickers, columns=["tic"]).to_csv('complete_kospi_tickers.csv', index=False)
+pd.DataFrame(complete_nasdaq_tickers, columns=["tic"]).to_csv('complete_nasdaq_tickers.csv', index=False)

@@ -70,7 +70,7 @@ def fetch_index_data(index, start_date, end_date):
     print(f"Fetching index data from {start_date} to {end_date}...")
     index = yf.download(f'{index}', start=start_date, end=end_date)
     index = index[['Adj Close']].reset_index()
-    index.rename(columns={'Adj Close': 'adjcp', 'Date': 'date'}, inplace=True)
+    index.rename(columns={'Adj Close': 'adjclose', 'Date': 'date'}, inplace=True)
     return index
 
 
@@ -95,8 +95,8 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
             previous_date = rebalancing_dates[i - 1]
 
             # Filter data for the current and previous rebalancing dates
-            current_data = data[data['date'] == current_date].set_index('tic')['adjcp']
-            previous_data = data[data['date'] == previous_date].set_index('tic')['adjcp']
+            current_data = data[data['date'] == current_date].set_index('tic')['adjclose']
+            previous_data = data[data['date'] == previous_date].set_index('tic')['adjclose']
 
             # Calculate returns and portfolio weights
             returns = current_data / previous_data - 1
@@ -141,7 +141,7 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
 
             # Calculate portfolio return based on equal weights
             weights = 1 / len(previous_data)
-            returns = current_data['adjcp'] / previous_data['adjcp'] - 1
+            returns = current_data['adjclose'] / previous_data['adjclose'] - 1
             portfolio_return = (returns * weights).sum()
 
             # Apply fees based on the traded value
@@ -166,7 +166,7 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
     index_portfolio_values = []  # Start empty
     # Calculate daily returns for DJ30 index
     index_data = index_data.copy()
-    index_data.loc[:,'daily_return'] = index_data['adjcp'].pct_change()
+    index_data.loc[:,'daily_return'] = index_data['adjclose'].pct_change()
 
     for daily_return in index_data['daily_return'].iloc[1:]:  # Skip the first NaN value
         # Calculate portfolio value
@@ -180,14 +180,14 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
 
 
     ## Buy-and-Hold Strategy
-    initial_prices = data[data['date'] == data['date'].min()].set_index('tic')['adjcp']
+    initial_prices = data[data['date'] == data['date'].min()].set_index('tic')['adjclose']
 
     # Create a list to store daily portfolio values
     bh_portfolio_values = []
 
     # Iterate through each unique date to calculate daily portfolio value
     for date in data['date'].unique():
-        daily_prices = data[data['date'] == date].set_index('tic')['adjcp']
+        daily_prices = data[data['date'] == date].set_index('tic')['adjclose']
 
         # Calculate price change ratio for each asset
         price_change_ratio = daily_prices / initial_prices
@@ -200,7 +200,7 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
     daily_portfolio_values = []  # Start empty
     daily_portfolio_value = initial_investment  # Initialize daily portfolio value
     data = data.copy()
-    data['daily_return'] = data.groupby('tic')['adjcp'].pct_change()  # Daily returns per stock
+    data['daily_return'] = data.groupby('tic')['adjclose'].pct_change()  # Daily returns per stock
     for date, group in data.groupby('date'):
         if group['daily_return'].isna().any():
             daily_portfolio_values.append(initial_investment)
@@ -340,7 +340,7 @@ if __name__ == '__main__':
 #         DataFrame: Contribution to volatility for each stock.
 #     """
 #     # Calculate daily returns for each stock
-#     daily_returns = data.pivot(index='date', columns='tic', values='adjcp').pct_change()
+#     daily_returns = data.pivot(index='date', columns='tic', values='adjclose').pct_change()
 #
 #     # Calculate individual stock volatility
 #     stock_volatility = daily_returns.std()
@@ -368,7 +368,7 @@ if __name__ == '__main__':
 #         DataFrame: Correlation matrix.
 #     """
 #     # Pivot data to get stock prices as columns
-#     prices = data.pivot(index='date', columns='tic', values='adjcp')
+#     prices = data.pivot(index='date', columns='tic', values='adjclose')
 #
 #     # Calculate daily returns
 #     daily_returns = prices.pct_change()

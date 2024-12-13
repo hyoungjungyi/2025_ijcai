@@ -1,12 +1,6 @@
 from data_provider.data_loader import  Dataset_Custom, Dataset_Pred,Dataset_moe
 from torch.utils.data import DataLoader,Subset
 
-data_dict = {
-    'custom': Dataset_Custom,
-    # 'portfolio':Dataset_Port_Pred,
-}
-
-
 def data_provider(args, flag):
     """
         Data provider function to return dataset and dataloader for a given flag.
@@ -21,7 +15,7 @@ def data_provider(args, flag):
     if args.moe_train:
         Data = Dataset_moe  # Use Dataset_moe for MOE training
     else:
-        Data = data_dict[args.data]
+        Data = Dataset_Custom
     timeenc = 0 if args.embed != 'timeF' else 1
 
     if flag in ['test', 'backtest']:  # test와 backtest 조건 통합
