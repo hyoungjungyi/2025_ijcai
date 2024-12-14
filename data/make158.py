@@ -41,7 +41,10 @@ class YfinancePreprocessor:
         """
         종가, 거래량, 고가, 저가 등을 기반으로 다양한 기술적 지표를 생성하는 함수.
         """
+        # 1. 데이터 정렬
+        df = df.sort_values(by=['tic', 'date']).reset_index(drop=True)
         eps = 1e-12  # Prevent division by zero
+
         periods = [5, 10, 20, 30, 60]
         
         # 새로운 열을 저장할 딕셔너리
@@ -53,10 +56,9 @@ class YfinancePreprocessor:
         new_features["zlow"] = df["low"] / df["close"]
 
         # VWAP_RATIO
-        close_grouped = df.groupby('tic')['close']
-        volume_grouped = df.groupby('tic')['volume']
-        vwap = close_grouped.transform(lambda x: (x * volume_grouped.transform(lambda y: y.rolling(window=5).sum())) / volume_grouped.transform(lambda y: y.rolling(window=5).sum()))
-        new_features['VWAP_RATIO'] = vwap / close_grouped.transform(lambda x: x)
+
+        vwap = (df['close'] * df['volume']).groupby(df['tic']).rolling(window=5).sum() / df['volume'].groupby(df['tic']).rolling(window=5).sum()
+        df['VWAP_RATIO'] = vwap.reset_index(level=0, drop=True) / df['close']
 
 
         # 추가 Feature 생성
@@ -72,91 +74,144 @@ class YfinancePreprocessor:
 
         # 롤링 윈도우 기반 Feature 생성
         for period in periods:
+            grouped = df.groupby('tic')
+
+            # Rolling objects
+            close_rolling = grouped['close'].rolling(window=period)
+            low_rolling = grouped['low'].rolling(window=period)
+            high_rolling = grouped['high'].rolling(window=period)
+            volume_rolling = grouped['volume'].rolling(window=period)
+
+            # Precomputed rolling statistics
+            rolling_mean_close = close_rolling.mean().reset_index(level=0, drop=True)
+            rolling_std_close = close_rolling.std().reset_index(level=0, drop=True)
+            rolling_min_low = low_rolling.min().reset_index(level=0, drop=True)
+            rolling_max_high = high_rolling.max().reset_index(level=0, drop=True)
+
             # MA, STD
-            new_features[f'MA{period}'] = df.groupby('tic')['close'].transform(lambda x: x.rolling(window=period).mean() / x)
-            new_features[f'STD{period}'] = df.groupby('tic')['close'].transform(lambda x: x.rolling(window=period).std() / x)
+            new_features[f'MA{period}'] = rolling_mean_close / df['close']
+            new_features[f'STD{period}'] = rolling_std_close / df['close']
 
             # ROC (Rate of Change)
-            new_features[f'ROC{period}'] = df.groupby('tic')['close'].transform(lambda x: x / x.shift(period) - 1)
+            new_features[f'ROC{period}'] = grouped['close'].transform(lambda x: x / x.shift(period) - 1)
 
             # RSV
-            min_low = df.groupby('tic')['low'].transform(lambda x: x.rolling(window=period).min())
-            max_high = df.groupby('tic')['high'].transform(lambda x: x.rolling(window=period).max())
-            new_features[f'RSV{period}'] = (df.groupby('tic')['close'].transform(lambda x: x) - min_low) / (max_high - min_low + eps)
+            new_features[f'RSV{period}'] = (df['close'] - rolling_min_low) / (rolling_max_high - rolling_min_low + eps)
 
             # MAX, MIN
-            new_features[f'MAX{period}'] = max_high / df.groupby('tic')['close'].transform(lambda x: x)
-            new_features[f'MIN{period}'] = min_low / df.groupby('tic')['close'].transform(lambda x: x)
+            new_features[f'MAX{period}'] = rolling_max_high / df['close']
+            new_features[f'MIN{period}'] = rolling_min_low / df['close']
 
             # QTLU, QTLD
-            new_features[f'QTLU{period}'] = df.groupby('tic')['close'].transform(lambda x: x.rolling(window=period).quantile(0.8) / x)
-            new_features[f'QTLD{period}'] = df.groupby('tic')['close'].transform(lambda x: x.rolling(window=period).quantile(0.2) / x)
+            new_features[f'QTLU{period}'] = close_rolling.quantile(0.8).reset_index(level=0, drop=True) / df['close']
+            new_features[f'QTLD{period}'] = close_rolling.quantile(0.2).reset_index(level=0, drop=True) / df['close']
 
             # RANK
-            new_features[f'RANK{period}'] =  df.groupby('tic')['close'].transform(lambda x: x.rolling(window=period).rank(pct=True))
-
+            new_features[f'RANK{period}'] = close_rolling.rank(pct=True).reset_index(level=0, drop=True)
 
             # IMAX, IMIN, IMXD
-            new_features[f'IMAX{period}'] = df['high'].rolling(window=period).apply(lambda x: np.argmax(x) / (period - 1), raw=True)
-            new_features[f'IMIN{period}'] = df['low'].rolling(window=period).apply(lambda x: np.argmin(x) / (period - 1), raw=True)
+            new_features[f'IMAX{period}'] = high_rolling.apply(lambda x: np.argmax(x) / (period - 1),
+                                                               raw=True).reset_index(level=0, drop=True)
+            new_features[f'IMIN{period}'] = low_rolling.apply(lambda x: np.argmin(x) / (period - 1),
+                                                              raw=True).reset_index(level=0, drop=True)
             new_features[f'IMXD{period}'] = abs(new_features[f'IMAX{period}'] - new_features[f'IMIN{period}'])
 
             # BETA, RSQR, RESI
-            slopes = df.groupby('tic')['close'].transform(lambda x: x.rolling(window=period).apply(lambda y: linregress(range(len(y)), y)[0], raw=True))
-            r_squares = df.groupby('tic')['close'].transform(lambda x: x.rolling(window=period).apply(lambda y: linregress(range(len(y)), y)[2] ** 2, raw=True))
-            residuals = df.groupby('tic')['close'].transform(lambda x: x.rolling(window=period).apply(lambda y: linregress(range(len(y)), y)[4], raw=True))
-            new_features[f'BETA{period}'] = slopes / df.groupby('tic')['close'].transform(lambda x: x)
-            new_features[f'RSQR{period}'] = r_squares
-            new_features[f'RESI{period}'] = residuals / df.groupby('tic')['close'].transform(lambda x: x)
+            def linreg_slope(y):
+                if len(y) < 2:  # Ensure at least two data points
+                    return np.nan
+                slope, _, _, _, _ = linregress(range(len(y)), y)
+                return slope
+
+            def linreg_r_squared(y):
+                if len(y) < 2:
+                    return np.nan
+                _, _, r_value, _, _ = linregress(range(len(y)), y)
+                return r_value ** 2
+
+            def linreg_stderr(y):
+                if len(y) < 2:
+                    return np.nan
+                _, _, _, _, stderr = linregress(range(len(y)), y)
+                return stderr
+
+            # Apply rolling calculations
+            slope_series = close_rolling.apply(linreg_slope, raw=False).reset_index(level=0, drop=True)
+            r_squared_series = close_rolling.apply(linreg_r_squared, raw=False).reset_index(level=0, drop=True)
+            stderr_series = close_rolling.apply(linreg_stderr, raw=False).reset_index(level=0, drop=True)
+
+            # Assign features
+            new_features[f'BETA{period}'] = slope_series / df['close']
+            new_features[f'RSQR{period}'] = r_squared_series
+            new_features[f'RESI{period}'] = stderr_series / df['close']
 
             # CORR, CORD
-            log_volume = df.groupby('tic')['volume'].transform(lambda x: np.log(x + 1))
-            new_features[f'CORR{period}'] = df.groupby('tic')['close'].transform(lambda x: x.rolling(window=period).corr(log_volume))
-            price_change = df.groupby('tic')['close'].transform(lambda x: x.pct_change())
-            volume_change = df.groupby('tic')['volume'].transform(lambda x: x.pct_change())
-            log_volume_change = np.log(volume_change + 1)
-            new_features[f'CORD{period}'] = price_change.rolling(window=period).corr(log_volume_change)
+            new_features[f'CORR{period}'] = grouped['close'].apply(lambda x: x.rolling(window=period).corr(np.log(grouped['volume'].transform(lambda v: v.loc[x.index] + 1)))).reset_index(level=0, drop=True)
+            new_features[f'CORD{period}'] = grouped['close'].pct_change().apply(lambda x: x.rolling(window=period).corr(np.log(grouped['volume'].pct_change().transform(lambda v: v.loc[x.index] + 1)))).reset_index(level=0, drop=True)
+
+
+
 
             # CNTP, CNTN, CNTD
-            price_change = df.groupby('tic')['close'].transform(lambda x: x.diff() > 0)
-            new_features[f'CNTP{period}'] = price_change.groupby(df['tic']).transform(lambda x: x.rolling(window=period).mean())
-            new_features[f'CNTN{period}'] = (~price_change).groupby(df['tic']).transform(lambda x: x.rolling(window=period).mean())
-            new_features[f'CNTD{period}'] = new_features[f'CNTP{period}'] - new_features[f'CNTN{period}']
+            price_diff = grouped['close'].diff()  # Ticker별 차이를 계산
+            positive_diff = (price_diff > 0).astype(int)
+            negative_diff = (price_diff < 0).astype(int)
+            absolute_diff = price_diff.abs()
+
+            cnt_positive = positive_diff.groupby(df['tic']).rolling(window=period).mean().reset_index(level=0,
+                                                                                                      drop=True)
+            cnt_negative = negative_diff.groupby(df['tic']).rolling(window=period).mean().reset_index(level=0,
+                                                                                                      drop=True)
+
+            new_features[f'CNTP{period}'] = cnt_positive
+            new_features[f'CNTN{period}'] = cnt_negative
+            new_features[f'CNTD{period}'] = cnt_positive - cnt_negative
 
             # SUMP, SUMN, SUMD
-            price_diff = df.groupby('tic')['close'].transform(lambda x: x.diff())
-            positive_diff = (price_diff > 0).astype(int)
-            absolute_diff = price_diff.abs()
-            new_features[f'SUMP{period}'] = positive_diff.groupby(df['tic']).transform(lambda x: x.rolling(window=period).sum() / (absolute_diff.rolling(window=period).sum() + eps))
-            new_features[f'SUMN{period}'] = (1 - positive_diff).groupby(df['tic']).transform(lambda x: x.rolling(window=period).sum() / (absolute_diff.rolling(window=period).sum() + eps))
+            sump = positive_diff.groupby(df['tic']).rolling(window=period).sum().reset_index(level=0, drop=True)
+            sumn = negative_diff.groupby(df['tic']).rolling(window=period).sum().reset_index(level=0, drop=True)
+            sum_abs = absolute_diff.groupby(df['tic']).rolling(window=period).sum().reset_index(level=0, drop=True)
+
+            new_features[f'SUMP{period}'] = sump / (sum_abs + eps)
+            new_features[f'SUMN{period}'] = sumn / (sum_abs + eps)
             new_features[f'SUMD{period}'] = new_features[f'SUMP{period}'] - new_features[f'SUMN{period}']
 
             # VMA, VSTD, WVMA
-            new_features[f'VMA{period}'] = df.groupby('tic')['volume'].transform(
-                lambda x: x.rolling(window=period).mean() / (df.groupby('tic')['volume'].transform(lambda x: x) + eps))
-            new_features[f'VSTD{period}'] = df.groupby('tic')['volume'].transform(
-                lambda x: x.rolling(window=period).std() / (df.groupby('tic')['volume'].transform(lambda x: x) + eps))
-            price_volatility = abs(df.groupby('tic')['close'].transform(lambda x: x.pct_change()))
-            weighted_volume = price_volatility * df.groupby('tic')['volume'].transform(lambda x: x)
-            new_features[f'WVMA{period}'] = weighted_volume.groupby(df['tic']).transform(
-                lambda x: x.rolling(window=period).std() / (weighted_volume.rolling(window=period).mean() + eps))
+            rolling_mean_volume = volume_rolling.mean().reset_index(level=0, drop=True)
+            rolling_std_volume = volume_rolling.std().reset_index(level=0, drop=True)
+
+            new_features[f'VMA{period}'] = rolling_mean_volume / (df['volume'] + eps)
+            new_features[f'VSTD{period}'] = rolling_std_volume / (df['volume'] + eps)
+
+            price_volatility = grouped['close'].pct_change().abs()
+            weighted_volume = price_volatility * df['volume']
+            weighted_std = weighted_volume.groupby(df['tic']).rolling(window=period).std().reset_index(level=0,
+                                                                                                       drop=True)
+            weighted_mean = weighted_volume.groupby(df['tic']).rolling(window=period).mean().reset_index(level=0,
+                                                                                                         drop=True)
+
+            new_features[f'WVMA{period}'] = weighted_std / (weighted_mean + eps)
 
             # VSUMP, VSUMN, VSUMD
-            volume_diff = df.groupby('tic')['volume'].transform(lambda x: x.diff())
-            positive_diff = (volume_diff > 0).astype(int)
-            negative_diff = (volume_diff < 0).astype(int)
-            absolute_diff = volume_diff.abs()
-            new_features[f'VSUMP{period}'] = positive_diff.groupby(df['tic']).transform(lambda x: x.rolling(window=period).sum() / (absolute_diff.rolling(window=period).sum() + eps))
-            new_features[f'VSUMN{period}'] = negative_diff.groupby(df['tic']).transform(lambda x: x.rolling(window=period).sum() / (absolute_diff.rolling(window=period).sum() + eps))
+            volume_diff =grouped['volume'].diff()
+            pos_diff_vol = (volume_diff > 0).astype(int)
+            neg_diff_vol = (volume_diff < 0).astype(int)
+            abs_diff_vol = volume_diff.abs()
+
+            vsump = pos_diff_vol.groupby(df['tic']).rolling(window=period).sum().reset_index(level=0, drop=True)
+            vsumn = neg_diff_vol.groupby(df['tic']).rolling(window=period).sum().reset_index(level=0, drop=True)
+            vsum_abs = abs_diff_vol.groupby(df['tic']).rolling(window=period).sum().reset_index(level=0, drop=True)
+
+            new_features[f'VSUMP{period}'] = vsump / (vsum_abs + eps)
+            new_features[f'VSUMN{period}'] = vsumn / (vsum_abs + eps)
             new_features[f'VSUMD{period}'] = new_features[f'VSUMP{period}'] - new_features[f'VSUMN{period}']
 
-            # FUT_RET
-        new_features['FUT_RET5'] = df.groupby('tic')['close'].transform(lambda x: x.shift(-5) / x.shift(-1) - 1)
 
 
         # 새로운 Feature를 DataFrame에 병합
         new_features_df = pd.DataFrame(new_features, index=df.index)
         df = pd.concat([df, new_features_df], axis=1)
+        df = df.sort_values(by=['date', 'tic']).reset_index(drop=True)
 
         return df
 

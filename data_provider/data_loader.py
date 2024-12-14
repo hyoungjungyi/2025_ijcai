@@ -46,7 +46,8 @@ class Dataset_Custom(Dataset):
 
     def __read_data__(self):
         df_raw = pd.read_csv(os.path.join(self.root_path,self.data_path),index_col=False)
-        df_raw = df_raw.dropna()
+        # df_raw = df_raw.dropna()
+        df_raw = df_raw.fillna(0) #corr변수 이상 확인
         df_raw['date'] = pd.to_datetime(df_raw['date'])
         #dependent dataset it should be fixed
         df_raw = df_raw.set_index(['date', 'tic']).sort_index()

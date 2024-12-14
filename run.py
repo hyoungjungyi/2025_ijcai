@@ -18,7 +18,7 @@ def main():
     parser.add_argument('--moe_train', action='store_true', help='Enable MOE training after expert training',default=False)
     # data loader
     parser.add_argument('--market',type=str,default='nasdaq',help='options = [dj30,nasdaq,kospi,csi300,sp500]')
-    parser.add_argument('--data', type=str, default='general', help='options = [general,alpha158]')
+    parser.add_argument('--data', type=str, default='alpha158', help='options = [general,alpha158]')
     parser.add_argument('--root_path', type=str, help='root path for the dataset')
     parser.add_argument('--data_path', type=str, help='data path for the dataset')
     # parser.add_argument('--root_path', type=str, default='./data/kospi/',help='options = [dj30,nasdaq,kospi,csi300]')
