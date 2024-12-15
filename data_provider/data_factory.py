@@ -30,7 +30,10 @@ def data_provider(args, flag):
         freq = args.freq
         Data = Dataset_Pred
     else:
-        shuffle_flag = True
+        if args.data =='alpha158':
+            shuffle_flag = False
+        else:
+            shuffle_flag = True
         drop_last = True
         batch_size = 1  # args.batch_size
         freq = args.freq
@@ -59,7 +62,7 @@ def data_provider(args, flag):
             subset_data,
             batch_size=batch_size,
             num_workers=args.num_workers,
-            drop_last=drop_last
+            drop_last=drop_last,
         )
     else:
         data_loader = DataLoader(
@@ -67,7 +70,7 @@ def data_provider(args, flag):
             batch_size=batch_size,
             shuffle=shuffle_flag,
             num_workers=args.num_workers,
-            drop_last=drop_last
+            drop_last=drop_last,persistent_workers=True,
         )
 
     return data_set, data_loader

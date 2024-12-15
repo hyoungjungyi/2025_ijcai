@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from exp.exp_supervise import Exp_Supervise
 from exp.exp_reinforce import Exp_Reinforce
-
+import torch.multiprocessing as mp
 
 
 
@@ -17,7 +17,7 @@ def main():
     parser.add_argument('--train_method',type= str,default='Supervise',help='options = [Reinforce, Supervise]')
     parser.add_argument('--moe_train', action='store_true', help='Enable MOE training after expert training',default=False)
     # data loader
-    parser.add_argument('--market',type=str,default='nasdaq',help='options = [dj30,nasdaq,kospi,csi300,sp500]')
+    parser.add_argument('--market',type=str,default='kospi',help='options = [dj30,nasdaq,kospi,csi300,sp500]')
     parser.add_argument('--data', type=str, default='alpha158', help='options = [general,alpha158]')
     parser.add_argument('--root_path', type=str, help='root path for the dataset')
     parser.add_argument('--data_path', type=str, help='data path for the dataset')
@@ -54,7 +54,7 @@ def main():
     # parser.add_argument('--features', type=str, default='M', help='forecasting task, options:[M, S, MS]; M:multivariate predict multivariate,S:univariate predict univariate, MS:multivariate predict univariate')
     # parser.add_argument('--target', type=str, default='close', help='target feature in S or MS task')  # Adj Close,'OT'
     #optimization
-    parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
+    parser.add_argument('--num_workers', type=int, default=1, help='data loader num workers')
     parser.add_argument('--itr', type=int, default=1, help='experiments times')
     parser.add_argument('--train_epochs', type=int, default=1, help='train epochs')
     parser.add_argument('--patience', type=int, default=3, help='early stopping patience')
@@ -111,6 +111,7 @@ def main():
     random.seed(fix_seed)
     torch.manual_seed(fix_seed)
     np.random.seed()
+    # mp.set_start_method('spawn') #for window
     setting = f'{args.market}_{args.data}_num_stocks({args.num_stocks})_sl({args.seq_len})_pl({args.pred_len})'
     if args.is_training:
         if args.train_method == 'Supervise':

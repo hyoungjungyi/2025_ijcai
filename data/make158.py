@@ -146,8 +146,10 @@ class YfinancePreprocessor:
             new_features[f'RESI{period}'] = stderr_series / df['close']
 
             # CORR, CORD
-            new_features[f'CORR{period}'] = grouped['close'].apply(lambda x: x.rolling(window=period).corr(np.log(grouped['volume'].transform(lambda v: v.loc[x.index] + 1)))).reset_index(level=0, drop=True)
-            new_features[f'CORD{period}'] = grouped['close'].pct_change().apply(lambda x: x.rolling(window=period).corr(np.log(grouped['volume'].pct_change().transform(lambda v: v.loc[x.index] + 1)))).reset_index(level=0, drop=True)
+            new_features[f'CORR{period}'] = grouped.apply(lambda g: g['close'].rolling(window=period).corr(np.log(g['volume'] + 1))).reset_index(level=0, drop=True)
+            new_features[f'CORD{period}'] = grouped.apply(lambda g: (g['close'] / g['close'].shift(1)).rolling(window=period).corr(np.log((g['volume'] / g['volume'].shift(1)) + 1))).reset_index(level=0, drop=True)
+            # new_features[f'CORR{period}'] = grouped['close'].apply(lambda x: x.rolling(window=period).corr(np.log(grouped['volume'].transform(lambda v: v.loc[x.index] + 1)))).reset_index(level=0, drop=True)
+            # new_features[f'CORD{period}'] = grouped['close'].pct_change().apply(lambda x: x.rolling(window=period).corr(np.log(grouped['volume'].pct_change().transform(lambda v: v.loc[x.index] + 1)))).reset_index(level=0, drop=True)
 
 
 
