@@ -3,6 +3,8 @@ import pandas as pd
 import os
 
 # 티커 리스트 불러오기
+csi300_tickers = [str(ticker) for ticker in pd.read_csv('complete_csi300_tickers.csv')['ticker'].tolist()]
+dj30_tickers = [str(ticker) for ticker in pd.read_csv('complete_dj30_tickers.csv')['ticker'].tolist()]
 kospi_tickers = [str(ticker) for ticker in pd.read_csv('complete_kospi_tickers.csv')['ticker'].tolist()]
 nasdaq_tickers = [str(ticker) for ticker in pd.read_csv('complete_nasdaq_tickers.csv')['ticker'].tolist()]
 
@@ -74,6 +76,11 @@ def fetch_and_save_ticker_data(ticker_list, output_csv, start_date=None, end_dat
         print(f"Data saved to {output_csv}")
     else:
         print("No data to save.")
+# Fetch and save csi300 data
+fetch_and_save_ticker_data(kospi_tickers, "raw_csi300_data.csv", start_date='2014-01-01', end_date='2023-12-31') #2014기준 200개 ticker존재
+
+# Fetch and save dj30 data
+fetch_and_save_ticker_data(kospi_tickers, "raw_dj30_data.csv", start_date='2000-01-01', end_date='2023-12-31')
 
 
 # Fetch and save KOSPI data
@@ -83,6 +90,17 @@ fetch_and_save_ticker_data(kospi_tickers, "raw_kospi_data.csv", start_date='2000
 fetch_and_save_ticker_data(nasdaq_tickers, "raw_nasdaq_data.csv", start_date='2000-01-05', end_date='2023-12-31') #1월 5일 상장한 티커존재
 
 # Load and display the first 10 rows of each CSV
+
+csi300_data = pd.read_csv("raw_csi300_data.csv")
+dj30_data = pd.read_csv("raw_dj30_data.csv")
+
+print("KOSPI Data Head(10):")
+print(csi300_data.head(10))
+
+print("\nNASDAQ Data Head(10):")
+print(dj30_data.head(10))
+
+
 kospi_data = pd.read_csv("raw_kospi_data.csv")
 nasdaq_data = pd.read_csv("raw_nasdaq_data.csv")
 

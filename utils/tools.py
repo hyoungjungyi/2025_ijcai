@@ -1,9 +1,22 @@
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-
+import logging
+import os
 plt.switch_backend('agg')
 
+# Initialize the logger
+def initialize_logger(output_dir):
+    log_file = os.path.join(output_dir, "experiment.log")
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),  # Save logs to a file
+            logging.StreamHandler()  # logger.info logs to console
+        ]
+    )
+    return logging.getLogger()
 
 def adjust_learning_rate(optimizer, epoch, args):
     # lr = args.learning_rate * (0.2 ** (epoch // 2))
@@ -22,7 +35,7 @@ def adjust_learning_rate(optimizer, epoch, args):
         lr = lr_adjust[epoch]
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-        print('Updating learning rate to {}'.format(lr))
+        logger.info('Updating learning rate to {}'.format(lr))
 
 
 class EarlyStopping:
@@ -42,7 +55,7 @@ class EarlyStopping:
             self.save_checkpoint(val_loss, model, path)
         elif score < self.best_score + self.delta:
             self.counter += 1
-            print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            logger.info(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
@@ -52,7 +65,7 @@ class EarlyStopping:
 
     def save_checkpoint(self, val_loss, model, path):
         if self.verbose:
-            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+            logger.info(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
         torch.save(model.state_dict(), path + '/' + 'checkpoint.pth')
         self.val_loss_min = val_loss
 

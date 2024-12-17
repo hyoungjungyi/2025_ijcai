@@ -6,8 +6,8 @@ import pandas as pd
 from exp.exp_supervise import Exp_Supervise
 from exp.exp_reinforce import Exp_Reinforce
 import torch.multiprocessing as mp
-
-
+from utils.tools import *  
+import os
 
 def main():
     parser = argparse.ArgumentParser(description='Transformer Family and Mixture of experts for Time Series Forecasting')
@@ -15,10 +15,10 @@ def main():
     parser.add_argument('--model',type=str,default='Transformer',help='options = [Transformer, LSTM, GRU, MHA, MHA_LSTM, MHA_GRU, MoE, MHA_MoE]')
     parser.add_argument('--is_training', type=int, default=1, help='status')
     parser.add_argument('--train_method',type= str,default='Supervise',help='options = [Reinforce, Supervise]')
-    parser.add_argument('--moe_train', action='store_true', help='Enable MOE training after expert training',default=False)
+    parser.add_argument('--moe_train', action='store_true', help='Enable MOE training after expert training')
     # data loader
-    parser.add_argument('--market',type=str,default='kospi',help='options = [dj30,nasdaq,kospi,csi300,sp500]')
-    parser.add_argument('--data', type=str, default='alpha158', help='options = [general,alpha158]')
+    parser.add_argument('--market',type=str,default='dj30',help='options = [dj30,nasdaq,kospi,csi300,sp500]')
+    parser.add_argument('--data', type=str, default='general', help='options = [general,alpha158]')
     parser.add_argument('--root_path', type=str, help='root path for the dataset')
     parser.add_argument('--data_path', type=str, help='data path for the dataset')
     # parser.add_argument('--root_path', type=str, default='./data/kospi/',help='options = [dj30,nasdaq,kospi,csi300]')
@@ -56,9 +56,9 @@ def main():
     #optimization
     parser.add_argument('--num_workers', type=int, default=1, help='data loader num workers')
     parser.add_argument('--itr', type=int, default=1, help='experiments times')
-    parser.add_argument('--train_epochs', type=int, default=1, help='train epochs')
+    parser.add_argument('--train_epochs', type=int, default=20, help='train epochs')
     parser.add_argument('--patience', type=int, default=3, help='early stopping patience')
-    parser.add_argument('--learning_rate', type=float, default=0.0002, help='optimizer learning rate')
+    parser.add_argument('--learning_rate', type=float, default=0.0001, help='optimizer learning rate')
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
     parser.add_argument('--lradj', type=str, default='type1', help='adjust learning rate')
     # GPU
@@ -78,9 +78,17 @@ def main():
         args.root_path = f'./data/{args.market}/'
     if not args.data_path:
         args.data_path = f'{args.market}_{args.data}_data.csv'
+    setting = f'{args.market}_{args.data}_num_stocks({args.num_stocks})_sl({args.seq_len})_pl({args.pred_len}_moe_train-{args.moe_train}'
+    # Create result directory
+    result_dir = os.path.join("./results", setting)
+    os.makedirs(result_dir, exist_ok=True)
 
-    print(f"Set root_path: {args.root_path}")
-    print(f"Set data_path: {args.data_path}")
+    # Initialize logger with result directory
+    global logger
+    logger = initialize_logger(result_dir)
+    
+    logger.info(f"Set root_path: {args.root_path}")
+    logger.info(f"Set data_path: {args.data_path}")
 
     # Automatically determine `enc_in` and `dec_in` based on input data
     data_file_path = f"{args.root_path}/{args.data_path}"
@@ -92,10 +100,10 @@ def main():
 
         # Set num_stocks based on unique tickers
         args.num_stocks = len(data['tic'].unique()) // args.select_factor
-        print(f"Detected {num_features} input features and select {args.num_stocks}  among {len(data['tic'].unique())} unique stocks. Setting enc_in={args.enc_in}, dec_in={args.dec_in}.")
-        print(f"Detected {num_features} input features. Setting enc_in={args.enc_in}, dec_in={args.dec_in}.")
+        logger.info(f"Detected {num_features} input features and select {args.num_stocks}  among {len(data['tic'].unique())} unique stocks. Setting enc_in={args.enc_in}, dec_in={args.dec_in}.")
+        logger.info(f"Detected {num_features} input features. Setting enc_in={args.enc_in}, dec_in={args.dec_in}.")
     except Exception as e:
-        print(f"Error loading data from {data_file_path}: {e}")
+        logger.info(f"Error loading data from {data_file_path}: {e}")
         return
 
     args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
@@ -112,25 +120,26 @@ def main():
     torch.manual_seed(fix_seed)
     np.random.seed()
     # mp.set_start_method('spawn') #for window
-    setting = f'{args.market}_{args.data}_num_stocks({args.num_stocks})_sl({args.seq_len})_pl({args.pred_len})'
+    
+    
     if args.is_training:
         if args.train_method == 'Supervise':
             if args.moe_train:
                 exp = Exp_Supervise(args)
                 exp.train_expert()
-                exp.train_moe()
-                print('>>>>>>>ex_pert_backtesting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+                exp.train_moe(setting)
+                logger.info('>>>>>>>ex_pert_backtesting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
                 exp.moe_backtest(setting)
             else:
                 exp = Exp_Supervise(args)
                 exp.train(setting)
-                print('>>>>>>>backtesting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+                logger.info('>>>>>>>backtesting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
                 exp.backtest(setting)
         else:
             pass
     else:
-        exp = Exp_Supervise(args)
-        print('>>>>>>>backtesting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+        exp = Exp_Reinforce(args)
+        logger.info('>>>>>>>backtesting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
         exp.backtest(setting,load=1)
         torch.cuda.empty_cache()
 

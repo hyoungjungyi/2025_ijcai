@@ -4,7 +4,10 @@ import yfinance as yf
 from pathlib import Path
 import numpy as np
 from scipy.stats import linregress
+import warnings
 
+# If you only want to suppress DeprecationWarning
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 class YfinancePreprocessor:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -339,9 +342,19 @@ class YfinancePreprocessor:
 
 
 # 데이터 처리 설정
-
-
-config_list = [
+config_list = [  {
+        'input_path': 'raw_csi300_data.csv',
+        'output_path': 'csi300_alpha158_data.csv',
+        'start_date': '2000-01-01',
+        'end_date': '2023-12-31',
+        'indicator': 'alpha158'
+    },  {
+        'input_path': 'raw_dj30_data.csv',
+        'output_path': 'dj30_alpha158_data.csv',
+        'start_date': '2000-01-01',
+        'end_date': '2023-12-31',
+        'indicator': 'alpha158'
+    },
     {
         'input_path': 'raw_kospi_data.csv',
         'output_path': 'kospi_alpha158_data.csv',

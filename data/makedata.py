@@ -52,8 +52,15 @@ class YfinancePreprocessor:
 
 
 # 기존 KOSPI 데이터 처리 설정
+config_list = [ {
+        'input_path': 'raw_csi300_data.csv',
+        'output_path': 'csi300_general_data.csv'
 
-config_list = [
+    }, {
+        'input_path': 'raw_dj30_data.csv',
+        'output_path': 'dj30_general_data.csv'
+
+    },
     {
         'input_path': 'raw_kospi_data.csv',
         'output_path': 'kospi_general_data.csv'
@@ -65,6 +72,19 @@ config_list = [
 
     }
 ]
+
+# config_list = [
+#     {
+#         'input_path': 'raw_kospi_data.csv',
+#         'output_path': 'kospi_general_data.csv'
+#
+#     },
+#     {
+#         'input_path': 'raw_nasdaq_data.csv',
+#         'output_path': 'nasdaq_general_data.csv'
+#
+#     }
+# ]
 
 
 # 데이터 처리 실행

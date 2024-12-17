@@ -20,13 +20,13 @@ class YfinancePreprocessor:
         """Yahoo Finance에서 데이터를 다운로드"""
         df_list = []
         for ticker in self.tickers:
-            print(f"Downloading data for {ticker}...")
+            logger.info(f"Downloading data for {ticker}...")
 
             
             df = yf.download(ticker, start=self.start_date, end=self.end_date, interval="1d", progress=False, auto_adjust=True)
             
             if df.empty:
-                print(f"No data for {ticker}")
+                logger.info(f"No data for {ticker}")
                 continue
 
             
@@ -43,7 +43,7 @@ class YfinancePreprocessor:
             df_list.append(df)
 
         if not df_list:
-            print("No data was downloaded for any tickers.")
+            logger.info("No data was downloaded for any tickers.")
             return pd.DataFrame()
 
         
@@ -73,7 +73,7 @@ class YfinancePreprocessor:
 
             # 최소 데이터 길이 확인
             if len(temp_indicator) < 20:
-                print(f"Not enough data for ticker {unique_ticker[i]}, skipping feature generation.")
+                logger.info(f"Not enough data for ticker {unique_ticker[i]}, skipping feature generation.")
                 continue
 
             temp_indicator.loc[:, "zclose"] = (temp_indicator["close"] / 
@@ -118,9 +118,9 @@ class YfinancePreprocessor:
 
         if self.output_path:
             self.df.to_csv(self.output_path, index=False)
-            print(f"Data saved to {self.output_path}")
+            logger.info(f"Data saved to {self.output_path}")
         else:
-            print("Output path not provided.")
+            logger.info("Output path not provided.")
 
 
 
@@ -129,15 +129,15 @@ def get_complete_tickers(tickers, start="2000-01-01", end="2023-09-01", output_f
     all_data = pd.DataFrame()
 
     for ticker in tickers:
-        print(f"Downloading data for {ticker}...")
+        logger.info(f"Downloading data for {ticker}...")
         data = yf.download(ticker, start=start, end=end)
         
         
         if data.empty:
-            print(f"No data for {ticker}")
+            logger.info(f"No data for {ticker}")
             continue
         
-        print(f"Ticker: {ticker}, Data shape: {data.shape}")
+        logger.info(f"Ticker: {ticker}, Data shape: {data.shape}")
         
     
         data_start_year = data.index.min().year
@@ -147,7 +147,7 @@ def get_complete_tickers(tickers, start="2000-01-01", end="2023-09-01", output_f
         for year in range(2000, 2024):
             if year not in data.index.year:
                 all_years_present = False
-                print(f"{ticker} is missing data for year {year}.")
+                logger.info(f"{ticker} is missing data for year {year}.")
                 break
 
         if all_years_present:
@@ -155,12 +155,12 @@ def get_complete_tickers(tickers, start="2000-01-01", end="2023-09-01", output_f
             data['Ticker'] = ticker
             all_data = pd.concat([all_data, data])
         else:
-            print(f"{ticker} does not have all data from 2000 to 2023.")
+            logger.info(f"{ticker} does not have all data from 2000 to 2023.")
 
   
     if output_file and not all_data.empty:
         all_data.to_csv(output_file, index=True)
-        print(f"Data saved to {output_file}")
+        logger.info(f"Data saved to {output_file}")
 
     return valid_tickers
 

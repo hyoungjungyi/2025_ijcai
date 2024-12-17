@@ -16,7 +16,7 @@ def fetch_ticker_fast(ticker):
         end_date = data.index.max()
         return ticker, start_date, end_date
     except Exception as e:
-        print(f"Failed to get ticker '{ticker}' reason: {e}")
+        print.info(f"Failed to get ticker '{ticker}' reason: {e}")
         error_tickers.append((ticker, str(e)))  # 오류 티커와 메시지 기록
         return ticker, None, None
 

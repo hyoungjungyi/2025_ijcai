@@ -24,9 +24,9 @@ class Exp_Supervise(Exp_Basic):
     def __init__(self, args):
         super(Exp_Supervise, self).__init__(args)
         if args.moe_train:
-            self.daily_model_path = os.path.join(self.args.checkpoints, f'{self.args.data}_daily_sl({self.args.seq_len})_pl(1)/checkpoint.pth')
-            self.weekly_model_path = os.path.join(self.args.checkpoints,f'{self.args.data}_weekly_sl({self.args.seq_len})_pl(5)/checkpoint.pth')
-            self.monthly_model_path = os.path.join(self.args.checkpoints, f'{self.args.data}_monthly_sl({self.args.seq_len})_pl(20)/checkpoint.pth')
+            self.daily_model_path = os.path.join(self.args.checkpoints, f'{self.args.market}_{self.args.data}_num_stocks({args.num_stocks})_daily_sl({self.args.seq_len})_pl(1)_moe_train-{args.moe_train}/checkpoint.pth')
+            self.weekly_model_path = os.path.join(self.args.checkpoints,f'{self.args.market}_{self.args.data}_num_stocks({args.num_stocks})_weekly_sl({self.args.seq_len})_pl(5)_moe_train-{args.moe_train}/checkpoint.pth')
+            self.monthly_model_path = os.path.join(self.args.checkpoints, f'{self.args.market}_{self.args.data}_num_stocks({args.num_stocks})_monthly_sl({self.args.seq_len})_pl(20)_moe_train-{args.moe_train}/checkpoint.pth')
             self.daily_model = self._build_model()
             self.weekly_model = self._build_model()
             self.monthly_model = self._build_model()
@@ -183,10 +183,10 @@ class Exp_Supervise(Exp_Basic):
                     train_loss.append(loss.item())
 
                 # if (i + 1) % 100 == 0:
-                #     # print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
+                #     # self.logger.info.info("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
                 #     speed = (time.time() - time_now) / iter_count
                 #     left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
-                #     # print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                #     # self.logger.info.info('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
                 #     iter_count = 0
                 #     time_now = time.time()
 
@@ -198,16 +198,16 @@ class Exp_Supervise(Exp_Basic):
                     loss.backward()
                     model_optim.step()
 
-            print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            self.logger.info.info("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_data, vali_loader, criterion)
             test_loss = self.vali(test_data, test_loader, criterion)
 
-            print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
+            self.logger.info.info("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
             early_stopping(vali_loss, self.model, path)
             if early_stopping.early_stop:
-                print("Early stopping")
+                self.logger.info.info("Early stopping")
                 break
 
             adjust_learning_rate(model_optim, epoch + 1, self.args)
@@ -220,7 +220,7 @@ class Exp_Supervise(Exp_Basic):
     def test(self, setting, test=0):
         test_data, test_loader = self._get_data(flag='test')
         if test:
-            print('loading model')
+            self.logger.info.info('loading model')
             self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint.pth')))
 
         preds = []
@@ -275,10 +275,10 @@ class Exp_Supervise(Exp_Basic):
 
         preds = np.array(preds)
         trues = np.array(trues)
-        print('test shape:', preds.shape, trues.shape)
+        self.logger.info.info('test shape:', preds.shape, trues.shape)
         preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
         trues = trues.reshape(-1, trues.shape[-2], trues.shape[-1])
-        print('test shape:', preds.shape, trues.shape)
+        self.logger.info.info('test shape:', preds.shape, trues.shape)
 
         # result save
         folder_path = './results/' + setting + '/'
@@ -286,7 +286,7 @@ class Exp_Supervise(Exp_Basic):
             os.makedirs(folder_path)
 
         mae, mse, rmse, mape, mspe = metric(preds, trues)
-        print('mse:{}, mae:{}'.format(mse, mae))
+        self.logger.info.info('mse:{}, mae:{}'.format(mse, mae))
         f = open("result.txt", 'a')
         f.write(setting + "  \n")
         f.write('mse: {:.3f}, mae: {:.3f}, rmse: {:.3f}, mape: {:.3f}, mspe: {:.3f}'.format(mse, mae, rmse, mape, mspe))
@@ -355,32 +355,32 @@ class Exp_Supervise(Exp_Basic):
 
 
         # Train daily expert
-        print("Training daily expert...")
+        self.logger.info.info("Training daily expert...")
         self.args.pred_len =  1
         setting = f'{self.args.data}_daily_sl({self.args.seq_len})_pl(1)'
         self.train(setting)
 
 
         # Train weekly expert
-        print("Training weekly expert...")
+        self.logger.info.info("Training weekly expert...")
         self.args.pred_len =  5
         setting = f'{self.args.data}_weekly_sl({self.args.seq_len})_pl(5)'
         self.train(setting)
 
 
         # Train monthly expert
-        print("Training monthly expert...")
+        self.logger.info.info("Training monthly expert...")
         self.args.pred_len =  20
         setting = f'{self.args.data}_monthly_sl({self.args.seq_len})_pl(20)'
         self.train(setting)
 
-        print("Finished training all experts.")
+        self.logger.info.info("Finished training all experts.")
 
-    def train_moe(self):
+    def train_moe(self,setting):
         """
         Train MOE using the pre-trained expert models.
         """
-        print("Loading pre-trained expert models...")
+        self.logger.info.info("Loading pre-trained expert models...")
 
         # Load the pre-trained experts
         # daily_model = self._build_model()
@@ -395,19 +395,19 @@ class Exp_Supervise(Exp_Basic):
         self.monthly_model.load_state_dict(torch.load(self.monthly_model_path))
         self.monthly_model.eval()
 
-        print("Experts loaded. Initializing MOE model...")
+        self.logger.info.info("Experts loaded. Initializing MOE model...")
 
         # Initialize MOE model
         self.moe_model.to(self.device)
 
         # Load MOE-specific data
-        print("Loading MOE training data...")
+        self.logger.info.info("Loading MOE training data...")
         moe_data, moe_loader = self._get_data(flag='train')
 
         optimizer = torch.optim.Adam(self.moe_model.parameters(), lr=self.args.learning_rate)
         criterion = nn.CrossEntropyLoss()  # Classification loss for gating network
 
-        print("Training MOE model...")
+        self.logger.info.info("Training MOE model...")
         for epoch in range(self.args.train_epochs):
             self.moe_model.train()
             train_loss = []
@@ -436,11 +436,13 @@ class Exp_Supervise(Exp_Basic):
                 train_loss.append(loss.item())
 
             avg_loss = np.mean(train_loss)
-            print(f"Epoch {epoch + 1}, Loss: {avg_loss:.6f}")
+            self.logger.info.info(f"Epoch {epoch + 1}, Loss: {avg_loss:.6f}")
 
-        moe_model_path = os.path.join(self.args.checkpoints, 'moe_model.pth')
+        moe_model_path = self.args.checkpoints+'/'+'moe_model' + setting + '/'+'moe_model.pth'
+        if not os.path.exists(moe_model_path):
+            os.makedirs(moe_model_path)
         torch.save(self.moe_model.state_dict(), moe_model_path)
-        print("MOE model training completed and saved.")
+        self.logger.info.info("MOE model training completed and saved.")
 
 
     def backtest(self, setting, load=False):
@@ -540,7 +542,6 @@ class Exp_Supervise(Exp_Basic):
         start_date = str(dates[0])
         end_date = str(dates[-1])
         back_test_data = pd.read_csv(os.path.join(self.args.root_path, self.args.data_path))
-        # back_test_data = pd.read_csv('./data/dj30/data.csv', index_col=0)
         back_test_data['date'] = pd.to_datetime(back_test_data['date'])
         if self.args.market == 'kospi':
             index_name = '^KS11'  # KOSPI Index
@@ -570,7 +571,7 @@ class Exp_Supervise(Exp_Basic):
             folder_path=folder_path
         )
         # 시각화
-        print("Backtest completed. Results saved to:", folder_path)
+        self.logger.info.info("Backtest completed. Results saved to:", folder_path)
 
     def moe_backtest(self, setting, load=True):
         """
@@ -585,7 +586,8 @@ class Exp_Supervise(Exp_Basic):
 
         # Load the pre-trained MOE model if specified
         if load:
-            moe_model_path = os.path.join(self.args.checkpoints, 'moe_model.pth')
+            model_path = os.path.join(self.args.checkpoints, setting)
+            moe_model_path = model_path + '/' + 'moe_model.pth'
             self.moe_model.load_state_dict(torch.load(moe_model_path))
             self.moe_model.to(self.device)
             self.moe_model.eval()
@@ -695,9 +697,22 @@ class Exp_Supervise(Exp_Basic):
         # Backtest visualization and result comparison
         start_date = str(unique_dates[0])
         end_date = str(unique_dates[-1])
-        back_test_data = pd.read_csv('./data/dj30/data.csv', index_col=0)
+        back_test_data = pd.read_csv(os.path.join(self.args.root_path, self.args.data_path))
         back_test_data['date'] = pd.to_datetime(back_test_data['date'])
-        index_data = fetch_index_data('^DJI', '2012-01-01', '2022-01-01')
+        if self.args.market == 'kospi':
+            index_name = '^KS11'  # KOSPI Index
+        elif self.args.market == 'dj30':
+            index_name = '^DJI'  # Dow Jones Industrial Average
+        elif self.args.market == 'sp500':
+            index_name = '^GSPC'  # S&P 500 Index
+        elif self.args.market == 'nasdaq':
+            index_name = '^IXIC'  # NASDAQ Composite
+        elif self.args.market == 'csi300':
+            index_name = '000300.SS'  # CSI 300 Index
+        else:
+            raise ValueError(f"Unsupported market: {self.args.market}")
+
+        index_data = fetch_index_data(index_name, '2012-01-01', '2024-01-01')
 
         run_backtest(
             data=back_test_data,  # Dataset as DataFrame
@@ -712,7 +727,7 @@ class Exp_Supervise(Exp_Basic):
             folder_path=folder_path,
             dynamic_annual_factor = dynamic_annual_factor
         )
-        print("MOE Backtest completed. Results saved to:", folder_path)
+        self.logger.info.info("MOE Backtest completed. Results saved to:", folder_path)
 
 
 

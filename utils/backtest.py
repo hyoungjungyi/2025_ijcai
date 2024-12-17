@@ -67,7 +67,7 @@ def calculate_portfolio_metrics(portfolio_values, risk_free_rate=0.01, freq="dai
 
 def fetch_index_data(index, start_date, end_date):
     """Fetch index data for a given date range."""
-    print(f"Fetching index data from {start_date} to {end_date}...")
+    logger.info(f"Fetching index data from {start_date} to {end_date}...")
     index = yf.download(f'{index}', start=start_date, end=end_date)
     index = index[['Close']].reset_index()
     index.rename(columns={'Close': 'close', 'Date': 'date'}, inplace=True)
@@ -231,7 +231,7 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
     weekly_values, weekly_dates_used = rebalancing_strategy_fixed(data, weekly_dates, fee_rate)
     monthly_values, monthly_dates_used = rebalancing_strategy_fixed(data, monthly_dates, fee_rate)
     rebalancing_analysis = analyze_rebalancing_changes(data, monthly_dates_used)
-    print(rebalancing_analysis)
+    logger.info(rebalancing_analysis)
     # Calculate metrics for each portfolio strategy
     index_metrics = calculate_portfolio_metrics(index_portfolio_values,freq='daily')
     # Calculate metrics for Buy-and-Hold Strategy
@@ -261,7 +261,7 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
     # Transpose for better readability
     metrics_summary_df_transposed = metrics_summary_df.set_index("Metric").transpose()
     pd.set_option('display.max_columns', None)
-    print(metrics_summary_df_transposed)
+    logger.info(metrics_summary_df_transposed)
 
     # Plot portfolio values
     sns.set(style="whitegrid")
@@ -354,7 +354,7 @@ if __name__ == '__main__':
 # initial_weights = 1 / len(data['tic'].unique())  # Equal weights
 # weights = pd.Series([initial_weights] * len(data['tic'].unique()), index=data['tic'].unique())
 # volatility_contribution = analyze_volatility_contribution(data, weights)
-# print(volatility_contribution)
+# logger.info(volatility_contribution)
 #
 # # Analyze portfolio changes at rebalancing points
 #
@@ -380,5 +380,5 @@ if __name__ == '__main__':
 #
 # # Example usage
 # correlation_matrix = analyze_correlation(data)
-# print("Correlation Matrix:")
-# print(correlation_matrix)
+# logger.info("Correlation Matrix:")
+# logger.info(correlation_matrix)
