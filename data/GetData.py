@@ -77,10 +77,10 @@ def fetch_and_save_ticker_data(ticker_list, output_csv, start_date=None, end_dat
     else:
         print("No data to save.")
 # Fetch and save csi300 data
-fetch_and_save_ticker_data(kospi_tickers, "raw_csi300_data.csv", start_date='2014-01-01', end_date='2023-12-31') #2014기준 200개 ticker존재
+fetch_and_save_ticker_data(csi300_tickers, "raw_csi300_data.csv", start_date='2014-01-01', end_date='2023-12-31') #2014기준 200개 ticker존재
 
 # Fetch and save dj30 data
-fetch_and_save_ticker_data(kospi_tickers, "raw_dj30_data.csv", start_date='2000-01-01', end_date='2023-12-31')
+fetch_and_save_ticker_data(dj30_tickers, "raw_dj30_data.csv", start_date='2000-01-01', end_date='2023-12-31')
 
 
 # Fetch and save KOSPI data

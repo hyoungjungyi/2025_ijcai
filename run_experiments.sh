@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the values for each parameter
-markets=("dj30" "nasdaq" "kospi" "csi300" "sp500")
+markets=("dj30" "nasdaq" "kospi" "csi300")
 data_options=("general" "alpha158")
 pred_lens=(1 5 20)
 
@@ -10,12 +10,12 @@ gpu_cores=(0 1 2 3)
 
 # GPU memory threshold (in MB) to ensure enough free memory before starting a new job
 memory_threshold=5000  # Set based on your model's memory requirement
-check_interval=300      # Check every 5 minutes (300 seconds)
+check_interval=60      # Check every 1 minute
 
 # Function to check if a GPU has enough free memory
 check_gpu_memory() {
     local gpu_id=$1
-    free_memory=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i $gpu_id | awk '{logger.info $1}')
+    free_memory=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i $gpu_id | awk '{print $1}')
     if [ "$free_memory" -gt "$memory_threshold" ]; then
         return 0  # GPU has enough free memory
     else
@@ -29,6 +29,7 @@ declare -A running_jobs
 # Function to clean up finished jobs from tracking
 clean_finished_jobs() {
     for gpu in "${!running_jobs[@]}"; do
+        # Check if the process is still running
         if ! ps -p "${running_jobs[$gpu]}" > /dev/null 2>&1; then
             echo "Job on GPU $gpu has finished."
             unset running_jobs[$gpu]
@@ -49,12 +50,13 @@ for market in "${markets[@]}"; do
 
                         # Execute the Python script with the specified parameters and GPU assignment
                         CUDA_VISIBLE_DEVICES=$gpu python run.py --market "$market" --data "$data" --pred_len "$pred_len" --moe_train &
+
                         job_pid=$!  # Get the process ID of the launched job
                         running_jobs[$gpu]=$job_pid  # Track the job
 
                         echo "Started job (PID $job_pid) on GPU $gpu for market=$market, data=$data, pred_len=$pred_len"
 
-                        sleep 5  # Short sleep before checking other jobs
+                        sleep 10  # Short sleep before checking other jobs
                         break 2  # Exit the while loop to proceed to the next experiment
                     fi
                 done

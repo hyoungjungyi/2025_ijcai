@@ -36,8 +36,8 @@ def moe_label(df, pred_lens):
         portfolio_value = pd.Series(1, index=df.index)
 
         for i in range(num_intervals):  # 청산 횟수만큼 반복
-            shift_start = df.groupby("tic")["close"].shift(-1 - i * pred_len)  # 시작 가격
-            shift_end = df.groupby("tic")["close"].shift(-1 - (i + 1) * pred_len)  # 청산 가격
+            shift_start = df.groupby("tic")["close"].shift( - i * pred_len)  # 시작 가격
+            shift_end = df.groupby("tic")["close"].shift( - (i + 1) * pred_len)  # 청산 가격
             interval_return = (shift_end - shift_start) / shift_start
             interval_return = interval_return.fillna(0)
 
@@ -61,33 +61,36 @@ def moe_label(df, pred_lens):
 
 
 
-def generate_labels(df, lookahead=5):
-    """
-    Generate labels for stock price forecasting based on the given formula.
-    Parameters
-    ----------
-    df : pd.DataFrame
-        MultiIndex DataFrame with index ['date', 'tic'] and a 'close' column.
-    lookahead : int
-        Prediction interval (number of days ahead to calculate return ratio).
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with an additional 'return_ratio' column (not normalized).
-    """
-    # Ensure the DataFrame is sorted by MultiIndex ('date', 'tic')
+
+def generate_labels_single(df, lookahead=5):
     df = df.sort_index()
-
-    # Calculate the return ratio using (c[τ+d] - c[τ+1]) / c[τ+1]
-    df["close_shift_1"] = df.groupby("tic")["close"].shift(-1)  # c[τ+1]
-    df["close_shift_d"] = df.groupby("tic")["close"].shift(-1 - lookahead)  # c[τ+d]
-    df["return_ratio"] = (df["close_shift_d"] - df["close_shift_1"]) / df["close_shift_1"]
-
-    # Drop intermediate calculation columns
-    df = df.drop(columns=["close_shift_1", "close_shift_d"])
-
-    # Drop rows where return ratio cannot be calculated
+    df["close_current"] = df.groupby("tic")["close"].shift(0)
+    df["close_future"] = df.groupby("tic")["close"].shift(-lookahead)
+    df["return_ratio"] = (df["close_future"] - df["close_current"]) / df["close_current"]
+    df = df.drop(columns=["close_current", "close_future"])
     return df.dropna(subset=["return_ratio"])
+
+
+def generate_labels_multiple_lookaheads(df, lookaheads=[1, 5, 20]):
+    """
+    다중 horizon(1,5,20 등)에 대해
+    return_ratio_1, return_ratio_5, return_ratio_20 컬럼을 한 번에 생성
+    """
+    df = df.sort_index()
+    # 현재 close
+    df["close_current"] = df.groupby("tic")["close"].shift(0)
+
+    for lh in lookaheads:
+        df_future = df.groupby("tic")["close"].shift(-lh)
+        df[f"return_ratio_{lh}"] = (df_future - df["close_current"]) / df["close_current"]
+
+    df = df.drop(columns=["close_current"])
+    # 각 return_ratio_* 중 NaN이 있는 행 제거
+    label_cols = [f"return_ratio_{lh}" for lh in lookaheads]
+    return df.dropna(subset=label_cols)
+
+
+
 
 
 def get_level_index(df: pd.DataFrame, level: Union[str, int]) -> int:

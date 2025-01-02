@@ -14,7 +14,8 @@ def calculate_portfolio_metrics(portfolio_values, risk_free_rate=0.01, freq="dai
     if dynamic_annual_factor is not None:
         annual_factor = dynamic_annual_factor
     elif pred_len is not None and total_periods is not None:
-        annual_factor = total_periods / pred_len
+        steps_per_year = 252.0 *(len(portfolio_values) -1 ) / total_periods
+        annual_factor = steps_per_year
     else:
         if freq == "daily":
             annual_factor = 252
@@ -67,19 +68,20 @@ def calculate_portfolio_metrics(portfolio_values, risk_free_rate=0.01, freq="dai
 
 def fetch_index_data(index, start_date, end_date):
     """Fetch index data for a given date range."""
-    logger.info(f"Fetching index data from {start_date} to {end_date}...")
-    index = yf.download(f'{index}', start=start_date, end=end_date)
+    print(f"Fetching index data from {start_date} to {end_date}...")
+    end_date += pd.Timedelta(days=1)  # Include end date
+    index = yf.download(f'{index}', start=pd.to_datetime(start_date), end=pd.to_datetime(end_date))
     index = index[['Close']].reset_index()
+    index['Date'] = pd.to_datetime(index['Date'])
     index.rename(columns={'Close': 'close', 'Date': 'date'}, inplace=True)
     return index
 
 
 def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external_portfolio=None,external_dates=None,pred_len=None,total_periods=None,folder_path=None,dynamic_annual_factor=None ):
     """Run backtest for the given data and date range."""
-    # Filter data for the given date range
-    data = data[(data['date'] >= start_date) & (data['date'] <= end_date)]
-    index_data = index_data[(index_data['date'] >= start_date) & (index_data['date'] <= end_date)]
 
+    data = data[(data['date'] >= start_date) & (data['date'] <= end_date)]
+    data['date'] = pd.to_datetime(data['date'])
     def analyze_rebalancing_changes(data, rebalancing_dates):
         """
         Analyze how portfolio composition changes at rebalancing points.
@@ -168,14 +170,15 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
     index_data = index_data.copy()
     index_data.loc[:,'daily_return'] = index_data['close'].pct_change()
 
-    for daily_return in index_data['daily_return'].iloc[1:]:  # Skip the first NaN value
+    for daily_return in index_data['daily_return']:  # Skip the first NaN value
         # Calculate portfolio value
         if not index_portfolio_values:  # If the list is empty, start with initial investment
             index_portfolio_values.append(initial_investment)
+            continue
         index_portfolio_values.append(index_portfolio_values[-1] * (1 + daily_return))
 
-    index_dates = index_data['date'].iloc[1:]  # Skip the first day for alignment
-    index_portfolio_values = index_portfolio_values[:len(index_dates)]  # Trim excess values if necessary
+    index_dates = index_data['date']  # Skip the first day for alignment
+
 
 
 
@@ -230,8 +233,8 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
     ## Rebalancing strategies
     weekly_values, weekly_dates_used = rebalancing_strategy_fixed(data, weekly_dates, fee_rate)
     monthly_values, monthly_dates_used = rebalancing_strategy_fixed(data, monthly_dates, fee_rate)
-    rebalancing_analysis = analyze_rebalancing_changes(data, monthly_dates_used)
-    logger.info(rebalancing_analysis)
+    # rebalancing_analysis = analyze_rebalancing_changes(data, monthly_dates_used)
+    # print(rebalancing_analysis)
     # Calculate metrics for each portfolio strategy
     index_metrics = calculate_portfolio_metrics(index_portfolio_values,freq='daily')
     # Calculate metrics for Buy-and-Hold Strategy
@@ -261,7 +264,7 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
     # Transpose for better readability
     metrics_summary_df_transposed = metrics_summary_df.set_index("Metric").transpose()
     pd.set_option('display.max_columns', None)
-    logger.info(metrics_summary_df_transposed)
+    print(metrics_summary_df_transposed)
 
     # Plot portfolio values
     sns.set(style="whitegrid")
@@ -354,7 +357,7 @@ if __name__ == '__main__':
 # initial_weights = 1 / len(data['tic'].unique())  # Equal weights
 # weights = pd.Series([initial_weights] * len(data['tic'].unique()), index=data['tic'].unique())
 # volatility_contribution = analyze_volatility_contribution(data, weights)
-# logger.info(volatility_contribution)
+# print(volatility_contribution)
 #
 # # Analyze portfolio changes at rebalancing points
 #
@@ -380,5 +383,5 @@ if __name__ == '__main__':
 #
 # # Example usage
 # correlation_matrix = analyze_correlation(data)
-# logger.info("Correlation Matrix:")
-# logger.info(correlation_matrix)
+# print("Correlation Matrix:")
+# print(correlation_matrix)

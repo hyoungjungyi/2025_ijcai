@@ -8,7 +8,6 @@ class Exp_Basic(object):
     def __init__(self, args):
         self.args = args
         self.logger = logging.getLogger()
-        self.logger.info("Initializing Exp_Supervise...")
         self.device = self._acquire_device()
         self.model = self._build_model().to(self.device)
 

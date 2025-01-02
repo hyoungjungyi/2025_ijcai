@@ -12,6 +12,7 @@ class Model(nn.Module):
     """
     def __init__(self, configs):
         super(Model, self).__init__()
+        self.configs = configs
         self.pred_len = configs.pred_len
         self.output_attention = configs.output_attention
 
@@ -65,10 +66,12 @@ class Model(nn.Module):
 
         dec_out = self.dec_embedding(x_dec, x_mark_dec)
         dec_out = self.decoder(dec_out, enc_out, x_mask=dec_self_mask, cross_mask=dec_enc_mask)
+        if self.configs.moe_train:
+            dec_out =  self.projection(dec_out[:,-self.pred_len:,:]).squeeze(-1)
+        else:
+            dec_out = self.Temporal(dec_out[:, -self.pred_len:, :])
 
-        dec_out = self.Temporal(dec_out[:, -self.pred_len:, :])
-
-        dec_out = self.projection(dec_out)
+            dec_out = self.projection(dec_out)
 
         if self.output_attention:
             return dec_out, attns

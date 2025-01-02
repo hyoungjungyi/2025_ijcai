@@ -342,6 +342,9 @@ class YfinancePreprocessor:
 
 
 # 데이터 처리 설정
+
+
+
 config_list = [  {
         'input_path': 'raw_csi300_data.csv',
         'output_path': 'csi300_alpha158_data.csv',
