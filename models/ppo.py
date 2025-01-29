@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import MultivariateNormal,Normal
-from models import Transformer
+from models import Transformer,Informer,Reformer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer
 
 class TemporalAttention(nn.Module):
     def __init__(self, d_model):
@@ -21,16 +21,18 @@ class PPO(nn.Module):
     def __init__(self, model_name,configs):
         super(PPO, self).__init__()
         self.model_name = configs.model
-        self.model_dict ={'Transformer': Transformer}
-        # self.model_dict = {
-        #     'Transformer': Transformer,
-        #     'Informer': Informer,
-        #     'Reformer': Reformer,
-        #     'Flowformer': Flowformer,
-        #     'Flashformer': Flashformer,
-        #     'iTransformer': iTransformer,
-        #     'FEDformer': FEDformer,
-        # }
+        # self.model_dict ={'Transformer': Transformer}
+        self.model_dict = {
+            'Transformer': Transformer,
+            'Informer': Informer,
+            'Reformer': Reformer,
+            'Flowformer': Flowformer,
+            'Flashformer': Flashformer,
+            'Autoformer': Autoformer,
+            'Fedformer': Fedformer,
+            'itransformer': itransformer,
+
+        }
 
         # Initialize model and parameters
         self.model = self.model_dict[model_name].Model(configs)

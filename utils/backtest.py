@@ -14,7 +14,7 @@ def calculate_portfolio_metrics(portfolio_values, risk_free_rate=0.01, freq="dai
     if dynamic_annual_factor is not None:
         annual_factor = dynamic_annual_factor
     elif pred_len is not None and total_periods is not None:
-        steps_per_year = 252.0 *(len(portfolio_values) -1 ) / total_periods
+        steps_per_year = 252.0 *(len(portfolio_values) - 1 ) / total_periods
         annual_factor = steps_per_year
     else:
         if freq == "daily":

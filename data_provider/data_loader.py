@@ -59,55 +59,92 @@ class Dataset_Custom(Dataset):
         df_raw = df_raw.set_index(['date', 'tic']).sort_index()
         #
         # # Split data by year
-        train_data = df_raw[df_raw.index.get_level_values('date').year < self.valid_year]
-        valid_data = df_raw[
+        df_train = df_raw[df_raw.index.get_level_values('date').year < self.valid_year]
+        df_val = df_raw[
             (df_raw.index.get_level_values('date').year >= self.valid_year) &
             (df_raw.index.get_level_values('date').year < self.test_year)
             ]
-        test_data = df_raw[df_raw.index.get_level_values('date').year >= self.test_year]
+        df_test = df_raw[df_raw.index.get_level_values('date').year >= self.test_year]
 
+        # Feature nomalization (after label generation)
 
-
-        # Generate labels before feature normalization
-        train_data = generate_labels_single(train_data, lookahead=self.pred_len)
-        valid_data = generate_labels_single(valid_data, lookahead=self.pred_len)
-        test_data = generate_labels_single(test_data, lookahead=self.pred_len)
-
-        # Feature normalization (after label generation)
-
-        feature_cols = train_data.columns.drop(train_data.columns[-1])  # All columns except target
-        label_col = train_data.columns[-1]
-
-        # Define raw_gt for all splits
-        self.raw_gt = {}
-        self.raw_gt['train'] = train_data[label_col].copy()
-        self.raw_gt['val'] = valid_data[label_col].copy()
-        self.raw_gt['test'] = test_data[label_col].copy()
-        self.raw_gt['backtest'] = test_data[label_col].copy()
-        scaler = RobustZScoreNorm(
-            fit_start_time=train_data.index.get_level_values('date').min(),
-            fit_end_time=train_data.index.get_level_values('date').max(),
-            fields_group=feature_cols
-        )
-        scaler.fit(train_data)
-        # Apply normalization
-        train_data = scaler(train_data)
-        valid_data = scaler(valid_data)
-        test_data = scaler(test_data)
-        # Label normalization (after label generation)
-        label_scaler = CSZScoreNorm(fields_group=[label_col])
-        train_data= label_scaler(train_data)
-        valid_data = label_scaler(valid_data)
-        test_data = label_scaler(test_data)
+        # feature_cols = train_data.columns.drop(train_data.columns[-1])  # All columns except target
+        # label_col = train_data.columns[-1]
+        #
+        # # Define raw_gt for all splits
+        # self.raw_gt = {}
+        # self.raw_gt['train'] = train_data[label_col].copy()
+        # self.raw_gt['val'] = valid_data[label_col].copy()
+        # self.raw_gt['test'] = test_data[label_col].copy()
+        # self.raw_gt['backtest'] = test_data[label_col].copy()
+        # scaler = RobustZScoreNorm(
+        #     fit_start_time=train_data.index.get_level_values('date').min(),
+        #     fit_end_time=train_data.index.get_level_values('date').max(),
+        #     fields_group=feature_cols
+        # )
+        # scaler.fit(train_data)
+        # # Apply normalization
+        # train_data = scaler(train_data)
+        # valid_data = scaler(valid_data)
+        # test_data = scaler(test_data)
+        # # Label normalization (after label generation)
+        # label_scaler = CSZScoreNorm(fields_group=[label_col])
+        # train_data= label_scaler(train_data)
+        # valid_data = label_scaler(valid_data)
+        # test_data = label_scaler(test_data)
 
         if self.flag == 'train':
-            data_split = train_data
-        elif self.flag == 'val':
-            data_split = valid_data
-        elif self.flag in ['test', 'backtest']:
-            data_split = test_data
 
-            # Prepare data arrays
+            df_split = df_train
+
+        elif self.flag == 'val':
+
+            df_split = df_val
+
+        elif self.flag in ['test', 'backtest']:
+
+            df_split = df_test
+
+        elif self.flag == 'pred':
+
+            df_split = df_test
+
+        else:
+
+            raise ValueError("flag must be in ['train','val','test','backtest','pred']")
+        if self.use_multi_horizon:
+            df_labeled = generate_labels_multiple_lookaheads(df_split, self.lookaheads)
+            label_cols = [f"return_ratio_{lh}" for lh in self.lookaheads]
+        else:
+            df_labeled = generate_labels_single(df_split, lookahead=self.pred_len)
+            label_cols = ["return_ratio"]
+        feature_cols = df_labeled.columns.drop(label_cols)
+        if self.scale and self.flag in ['train', 'val', 'test', 'backtest']:
+            # robust scaler
+            self.scaler = RobustZScoreNorm(fit_start_time=df_train.index.get_level_values('date').min(),fit_end_time=df_train.index.get_level_values('date').max(),fields_group=feature_cols)
+            self.scaler.fit(df_train)
+            df_labeled = self.scaler(df_labeled)
+        self.df = df_labeled[feature_cols]
+        self.df_label = df_labeled[label_cols]
+        df_date_only = self.df.reset_index()[['date']].drop_duplicates()
+        df_date_only = df_date_only.sort_values(by='date')
+
+        if self.timeenc == 0:
+                df_date_only['month'] = df_date_only['date'].dt.month
+
+                df_date_only['day'] = df_date_only['date'].dt.day
+
+                df_date_only['weekday'] = df_date_only['date'].dt.weekday
+
+                df_date_only['hour'] = df_date_only['date'].dt.hour
+
+                self.data_stamp = df_date_only.drop(columns=['date']).values  # shape: [num_dates, 4]
+
+        else:
+            time_data = time_features(df_date_only['date'].values, freq=self.freq)
+            self.data_stamp = time_data.transpose(1, 0)
+
+        self.unique_dates = df_date_only['date'].values
 
         self.data_x = data_split.drop(columns=[label_col])  # Input features .values
         self.gt = data_split[label_col]  # Labels .values
@@ -115,24 +152,7 @@ class Dataset_Custom(Dataset):
         # Generate time encodings
         df_stamp = data_split.reset_index()[['date']]  # Extract 'date' for time encoding
         self.df_stamp = df_stamp.drop_duplicates()  # Remove duplicates for unique dates
-        if self.timeenc == 0:
-            # Basic time features
-            df_stamp['month'] = df_stamp['date'].dt.month
-            df_stamp['day'] = df_stamp['date'].dt.day
-            df_stamp['weekday'] = df_stamp['date'].dt.weekday
-            df_stamp['hour'] = df_stamp['date'].dt.hour
-            time_features_data = df_stamp[['month', 'day', 'weekday', 'hour']].values
 
-            # Repeat time features for each tic
-            self.data_stamp = np.repeat(time_features_data, len(data_split) // len(df_stamp), axis=0)
-        elif self.timeenc == 1:
-            # Advanced time features
-            self.data_stamp = time_features(df_stamp['date'].unique(), freq=self.freq).T #2005
-
-            # Repeat time features for each tic
-            # self.data_stamp = np.repeat(time_features_data, len(data_split) // len(df_stamp), axis=1)
-        else:
-            raise ValueError("Invalid value for timeenc. Must be 0 or 1.")
 
     def build_indexes(self):
         unique_dates = self.df_stamp['date'].unique()
@@ -375,7 +395,8 @@ class TimeSeriesDataset(Dataset):
             scale=True,
             timeenc=0,
             freq='h',
-            step_size=None,  # step sampling 간격 (옵션)
+            step_size=None,
+            use_step_sampling = False # step sampling 간격 (옵션)
     ):
         super().__init__()
         # size = [seq_len, label_len, pred_len]
@@ -399,7 +420,7 @@ class TimeSeriesDataset(Dataset):
 
         # step sampling
         self.step_size = step_size if step_size is not None else self.pred_len
-        self.use_step_sampling = False if use_multi_horizon else True
+        self.use_step_sampling = use_step_sampling
 
         # 데이터를 읽어서 self.df 에 저장
         # + 라벨 생성 + 스케일링 + time feature
@@ -553,7 +574,7 @@ class TimeSeriesDataset(Dataset):
                 (self.unique_dates < seq_end_date)
         )
         seq_x_mark = self.data_stamp[seq_stamp_mask]
-        # shape을 맞춰야 하면, 예: tile 등 조정
+
 
         # (B) seq_y (decoder input)
         label_mask = (

@@ -7,7 +7,13 @@ csi300_tickers = [str(ticker) for ticker in pd.read_csv('complete_csi300_tickers
 dj30_tickers = [str(ticker) for ticker in pd.read_csv('complete_dj30_tickers.csv')['ticker'].tolist()]
 kospi_tickers = [str(ticker) for ticker in pd.read_csv('complete_kospi_tickers.csv')['ticker'].tolist()]
 nasdaq_tickers = [str(ticker) for ticker in pd.read_csv('complete_nasdaq_tickers.csv')['ticker'].tolist()]
+def format_tickers(ticker_list):
+    return ", ".join(ticker_list)
 
+print("CSI 300 Tickers:", format_tickers(csi300_tickers))
+print("DJ30 Tickers:", format_tickers(dj30_tickers))
+print("KOSPI Tickers:", format_tickers(kospi_tickers))
+print("NASDAQ Tickers:", format_tickers(nasdaq_tickers))
 
 def fetch_and_save_ticker_data(ticker_list, output_csv, start_date=None, end_date=None):
     """

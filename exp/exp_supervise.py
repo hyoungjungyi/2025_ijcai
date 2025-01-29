@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch import optim
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
-from models import Transformer,moe
+from models import Transformer,moe,ppo,tradingenv,Informer,Reformer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer
 from utils.tools import EarlyStopping, adjust_learning_rate, visual,port_visual
 from utils.metrics import metric
 from utils.backtest import *
@@ -21,18 +21,18 @@ warnings.filterwarnings('ignore')
 
 
 class Exp_Supervise(Exp_Basic):
-    def __init__(self, args):
-        super(Exp_Supervise, self).__init__(args)
-        if args.moe_train:
-
-            self.daily_model = self._build_model()
-            self.weekly_model = self._build_model()
-            self.monthly_model = self._build_model()
-            self.moe_model = moe.MOEModel(
-                input_size=self.args.enc_in,
-                experts=[self.daily_model, self.weekly_model, self.monthly_model],
-                train_experts=False  # Freeze experts during MOE training
-            )
+    def __init__(self, args,setting):
+        super(Exp_Supervise, self).__init__(args,setting)
+        # if args.moe_train:
+        #
+        #     self.daily_model = self._build_model()
+        #     self.weekly_model = self._build_model()
+        #     self.monthly_model = self._build_model()
+        #     self.moe_model = moe.MOEModel(
+        #         input_size=self.args.enc_in,
+        #         experts=[self.daily_model, self.weekly_model, self.monthly_model],
+        #         train_experts=False  # Freeze experts during MOE training
+        #     )
     def _build_model(self):
         # model_dict = {
         #     'FEDformer': FEDformer,

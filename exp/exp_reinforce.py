@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch import optim
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
-from models import Transformer,moe,ppo,tradingenv
+from models import Transformer,moe,ppo,tradingenv,Informer,Reformer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer
 from utils.tools import EarlyStopping, adjust_learning_rate, visual,port_visual
 from utils.metrics import metric
 from utils.backtest import *
@@ -25,15 +25,11 @@ warnings.filterwarnings('ignore')
 
 
 class Exp_Reinforce(Exp_Basic):
-    def __init__(self, args):
-        super(Exp_Reinforce, self).__init__(args)
+    def __init__(self, args,setting):
+        super(Exp_Reinforce, self).__init__(args,setting)
         self.temperature = self.args.temperature
         self.env = tradingenv.TradingEnvironment(self.args)
-        #### agent config###
-        if self.args.num_stocks % 2==1:
-            self.batch_size = self.args.num_stocks * self.args.select_factor +1
-        else:
-            self.batch_size = self.args.num_stocks * self.args.select_factor
+
 
         self.buffer_size = 1  #20
         self.gamma =0.99
@@ -43,16 +39,7 @@ class Exp_Reinforce(Exp_Basic):
         self.policy_update_freq = 500
         self.max_clip = 10  # 적절한 범위 설정 (예: 10은 exp(10) = 22026 정도)
         self.min_clip = -10  # exp(-10) ≈ 0
-        ####################
-        if args.moe_train:
-            self.daily_model = self._build_model()
-            self.weekly_model = self._build_model()
-            self.monthly_model = self._build_model()
-            self.moe_model = moe.MOEModel(
-                input_size=self.args.enc_in,
-                experts=[self.daily_model, self.weekly_model, self.monthly_model],
-                train_experts=False  # Freeze experts during MOE training
-            )
+
     def _build_model(self):
 
         model = ppo.PPO(self.args.model, self.args)
@@ -186,7 +173,7 @@ class Exp_Reinforce(Exp_Basic):
 
 
 
-    def train_net(self, K_epoch=10, model_optim=None):
+    def train_net(self, K_epoch=3, model_optim=None):
         if len(self.data) == self.buffer_size:
             data = self.make_batch()
             data = self.calc_advantage(data)
@@ -255,11 +242,11 @@ class Exp_Reinforce(Exp_Basic):
                 # Portfolio selection
                 top_indices = torch.topk(scores, self.args.num_stocks, dim=0).indices
                 selected_scores = scores[top_indices]
-                selected_returns = ground_true[top_indices]
-                weights = torch.softmax(selected_scores / self.temperature, dim=0)
-
-                # Compute reward using environment
-                reward = self.env.step(weights, selected_returns)
+                topk_weights = torch.softmax(selected_scores / self.temperature, dim=0)
+                final_weights = torch.zeros_like(scores)
+                final_weights[top_indices] = topk_weights
+                returns = ground_true
+                reward = self.env.step(final_weights, returns)
 
                 # Compute TD Target
                 td_target = reward + self.gamma * next_value * (0 if done else 1)
@@ -300,16 +287,6 @@ class Exp_Reinforce(Exp_Basic):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
-        dataset = train_loader.dataset  # This is Dataset_Custom
-        unique_dates = pd.to_datetime(dataset.df_stamp['date'].unique()) # sorted unique dates
-        if dataset.use_step_sampling:
-            valid_indices = dataset.indexes  # e.g. [0, step_size, 2*step_size, ...]
-        else:
-            valid_indices = range(len(dataset))  # 0, 1, 2, ..., (len -1)
-        subset_dates = [
-            unique_dates[idx + self.args.seq_len] for idx in valid_indices
-            if (idx + self.args.seq_len) < len(unique_dates)  # ensure index is valid
-        ]
 
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path):
@@ -329,7 +306,6 @@ class Exp_Reinforce(Exp_Basic):
             scaler = torch.cuda.amp.GradScaler()
 
         for epoch in range(self.args.train_epochs):
-            iter_count = 0
             train_loss = []
 
             prev_batch = None
@@ -356,22 +332,18 @@ class Exp_Reinforce(Exp_Basic):
                 # decoder input
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-                current_date = subset_dates[i]
-                # self.logger.info(f"Processing date: {current_date}")
-                returns = torch.tensor(train_data.raw_gt['train'][current_date].values, dtype=torch.float32).to(self.device)
-                # returns = ground_true.squeeze(0).float().to(self.device)
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if self.args.output_attention:
                             scores, log_prob = self.model.pi(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
-
-                            # Select top stocks based on scores
                             top_indices = torch.topk(scores, self.args.num_stocks, dim=0).indices
                             selected_scores = scores[top_indices]
-                            selected_returns = returns[top_indices]
-                            weights = torch.softmax(selected_scores / self.temperature, dim=0)
-                            reward = self.env.step(weights, selected_returns)
+                            topk_weights = torch.softmax(selected_scores / self.temperature, dim=0)
+                            final_weights = torch.zeros_like(scores)
+                            final_weights[top_indices] = topk_weights
+                            returns = ground_true
+                            reward = self.env.step(final_weights, returns)
                             self.env.rollout.append(
                                 (batch_x, batch_y, batch_x_mark, batch_y_mark, scores.detach(), reward,
                                  next_batch_x, next_batch_y, next_batch_x_mark, next_batch_y_mark,
@@ -381,9 +353,11 @@ class Exp_Reinforce(Exp_Basic):
                             # Select top stocks based on scores
                             top_indices = torch.topk(scores, self.args.num_stocks, dim=0).indices
                             selected_scores = scores[top_indices]
-                            selected_returns = returns[top_indices]
-                            weights = torch.softmax(selected_scores / self.temperature, dim=0)
-                            reward = self.env.step(weights, selected_returns)
+                            topk_weights = torch.softmax(selected_scores / self.temperature, dim=0)
+                            final_weights = torch.zeros_like(scores)
+                            final_weights[top_indices] = topk_weights
+                            returns = ground_true
+                            reward = self.env.step(final_weights, returns)
                             self.env.rollout.append(
                                 (batch_x, batch_y, batch_x_mark, batch_y_mark, scores.detach(), reward,
                                  next_batch_x, next_batch_y, next_batch_x_mark, next_batch_y_mark,
@@ -398,9 +372,11 @@ class Exp_Reinforce(Exp_Basic):
                         # Select top stocks based on scores
                         top_indices = torch.topk(scores, self.args.num_stocks, dim=0).indices
                         selected_scores = scores[top_indices]
-                        selected_returns = returns[top_indices]
-                        weights = torch.softmax(selected_scores / self.temperature, dim=0)
-                        reward = self.env.step(weights, selected_returns)
+                        topk_weights = torch.softmax(selected_scores / self.temperature, dim=0)
+                        final_weights = torch.zeros_like(scores)
+                        final_weights[top_indices] = topk_weights
+                        returns = ground_true
+                        reward = self.env.step(final_weights, returns)
                         self.env.rollout.append((batch_x, batch_y, batch_x_mark, batch_y_mark, scores.detach(), reward,
                                                  next_batch_x, next_batch_y, next_batch_x_mark, next_batch_y_mark,
                                                  log_prob.detach(), done, returns))
@@ -409,16 +385,18 @@ class Exp_Reinforce(Exp_Basic):
                         # Select top stocks based on scores
                         top_indices = torch.topk(scores, self.args.num_stocks, dim=0).indices
                         selected_scores = scores[top_indices]
-                        selected_returns = returns[top_indices]
-                        weights = torch.softmax(selected_scores / self.temperature, dim=0)
-                        reward = self.env.step(weights, selected_returns)
+                        topk_weights = torch.softmax(selected_scores / self.temperature, dim=0)
+                        final_weights = torch.zeros_like(scores)
+                        final_weights[top_indices] = topk_weights
+                        returns = ground_true
+                        reward = self.env.step(final_weights, returns)
                         self.env.rollout.append((batch_x, batch_y, batch_x_mark, batch_y_mark, scores.detach(), reward,
                                                  next_batch_x, next_batch_y, next_batch_x_mark, next_batch_y_mark,
                                                  log_prob.detach(), done, returns))
                     if len(self.env.rollout) == self.env.rollout_len:
                         self.put_data(self.env.rollout)
                         self.env.rollout = []
-                        loss = self.train_net(K_epoch=10, model_optim=model_optim)
+                        loss = self.train_net(K_epoch=3, model_optim=model_optim)
                         train_loss.append(loss)
 
                     prev_batch = current_batch
@@ -446,6 +424,7 @@ class Exp_Reinforce(Exp_Basic):
         self.model.load_state_dict(torch.load(best_model_path))
 
         return self.model
+
     def backtest(self, setting, load=False):
         """
         Backtest the trained model using reinforcement learning principles.
@@ -453,7 +432,7 @@ class Exp_Reinforce(Exp_Basic):
         # Load data for testing and backtesting
         back_test_data, back_test_loader = self._get_data(flag='backtest')
         dataset = back_test_loader.dataset  # This is Dataset_Custom
-        unique_dates = pd.to_datetime(dataset.df_stamp['date'].unique())# sorted unique dates
+        unique_dates = pd.to_datetime(dataset.unique_dates)# sorted unique dates
         seq_len = self.args.seq_len
         pred_len = self.args.pred_len
 
@@ -475,7 +454,7 @@ class Exp_Reinforce(Exp_Basic):
         # Initialize environment
         self.env.reset()
         portfolio_values = [1.0]
-        investment_dates = [subset_dates[0]]
+        investment_dates = [unique_dates[0]]
 
         # Set parameters
         fee_rate = self.args.fee_rate
@@ -492,7 +471,6 @@ class Exp_Reinforce(Exp_Basic):
                 batch_x_mark = batch_x_mark.squeeze(0).float().to(self.device)
                 batch_y_mark = batch_y_mark.squeeze(0).float().to(self.device)
                 ground_true = ground_true.squeeze(0).float().to(self.device)
-                current_date = subset_dates[i]
                 # self.logger.info(f"Processing date: {current_date}")
                 # Make predictions with the model
                 scores, _ = self.model.pi(batch_x, batch_x_mark, batch_y, batch_y_mark)
@@ -500,45 +478,34 @@ class Exp_Reinforce(Exp_Basic):
                 # Select top-performing stocks and calculate weights
                 top_indices = torch.topk(scores, self.args.num_stocks, dim=0).indices
                 selected_scores = scores[top_indices]
-                original_true = torch.tensor(back_test_data.raw_gt['backtest'][current_date],dtype=torch.float32).to(self.device)
-                selected_returns = original_true[top_indices]
-                # selected_returns = ground_true[top_indices]
-                weights = torch.softmax(selected_scores / self.temperature, dim=0)
-
-                # Update the environment with new portfolio values
-                reward = self.env.step(weights, selected_returns)
+                topk_weights = torch.softmax(selected_scores / self.temperature, dim=0)
+                final_weights = torch.zeros_like(scores)
+                final_weights[top_indices] = topk_weights
+                returns = ground_true
+                reward = self.env.step(final_weights,returns)
                 portfolio_values.append(self.env.portfolio_value)
-                # Add the next relevant date to investment_dates
-                if i < len(subset_dates) - 1:
-                    investment_dates.append(subset_dates[i + 1])
+                investment_dates.append(subset_dates[i])
 
-        # Ensure the final portfolio matches the extended period
-        final_date = subset_dates[-1] + pd.Timedelta(days=seq_len + pred_len)
-        investment_dates.append(final_date)
 
-        # Create results folder if it does not exist
+        final_pf = self.env.portfolio_value
+        self.logger.info(f"[BackTest] Final Portfolio Value = {final_pf:.4f}")
+        self.wandb.log({"BackTest Final Portfolio Value": final_pf})
+        start_date = dataset.unique_dates[0]
+        end_date = unique_dates[-1]
+
+        csv_path = os.path.join(self.args.root_path, self.args.data_path)
+        raw_data = pd.read_csv(csv_path)
+        raw_data['date'] = pd.to_datetime(raw_data['date'])
+        index_name = self._get_market_index_name()
+        index_data = fetch_index_data(index_name, start_date, end_date)
         folder_path = os.path.join('./results', setting)
         os.makedirs(folder_path, exist_ok=True)
 
-        # Save portfolio values as a NumPy array
-        portfolio_values = np.array(self.env.asset_memory)
-        np.save(os.path.join(folder_path, 'backtest_portfolio_values.npy'), portfolio_values)
 
-        # Fetch benchmark data for the backtest period
-        back_test_csv = pd.read_csv(os.path.join(self.args.root_path, self.args.data_path))
-        back_test_csv['date'] = pd.to_datetime(back_test_csv['date']).dt.date
-        all_test_dates = back_test_data.gt.index.get_level_values('date').unique()
-        start_date = all_test_dates[0].date()
-        end_date = all_test_dates[-1].date()
-
-        # start_date =test_data.gt.index.get_level_values('date').unique()[0].date()
-        # end_date = test_data.gt.index.get_level_values('date').unique()[-1].date()
-        index_name = self._get_market_index_name()
-        index_data = fetch_index_data(index_name, start_date, end_date)
 
         # Run backtest and save results
         run_backtest(
-            data=back_test_csv,
+            data=raw_data,
             index_data=index_data,
             start_date=start_date,
             end_date=end_date,
@@ -546,7 +513,7 @@ class Exp_Reinforce(Exp_Basic):
             external_portfolio=portfolio_values,
             external_dates=investment_dates,
             pred_len=pred_len,
-            total_periods=back_test_data.raw_gt['backtest'].index.get_level_values('date').nunique(),
+            total_periods=len(dataset.unique_dates),
             folder_path=folder_path
         )
 

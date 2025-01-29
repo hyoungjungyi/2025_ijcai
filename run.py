@@ -11,6 +11,9 @@ import torch.multiprocessing as mp
 from utils.tools import *  
 import os
 import time
+import wandb
+import uuid
+
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 torch.autograd.set_detect_anomaly(True)
 torch.set_num_threads(1)
@@ -21,11 +24,20 @@ os.environ['OPENBLAS_NUM_THREADS'] = "1"
 
 def main():
     parser = argparse.ArgumentParser(description='Transformer Family and Mixture of experts for Time Series Forecasting')
+    parser.add_argument('--wandb_project_name', '-wpn', type=str, default='KDD2025')
+    parser.add_argument('--wandb_group_name', '-wgn', type=str, default='Debugging Mode')
+    parser.add_argument('--wandb_session_name', '-wsn', type=str, default='Debugging Mode')
+
+
     parser.add_argument('--seed', type=int, help='random seed')
-    parser.add_argument('--model',type=str,default='Transformer',help='options = [Transformer, LSTM, GRU, MHA, MHA_LSTM, MHA_GRU, MoE, MHA_MoE]')
+    parser.add_argument('--model',type=str,default='itransformer',help='options = [Transformer,Reformer,Informer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer]')
     parser.add_argument('--is_training', type=int, default=1, help='status')
     parser.add_argument('--train_method',type= str,default='Reinforce',help='options = [Reinforce, Supervise]')
-    parser.add_argument('--moe_train', action='store_true', help='Enable MOE training after expert training',default=True)
+    parser.add_argument('--moe_train', action='store_true', help='Enable MOE training after expert training',default=False)
+    parser.add_argument('--transfer', action='store_true', help='whether to use transfer learning',default = True)
+    parser.add_argument('--freeze', action='store_true', help='whether to use transfer learning', default=True)
+
+
     parser.add_argument('--temperature', type=float, default=1.0, help='temperature parameter for softmax')
     # data loader
     parser.add_argument('--market',type=str,default='dj30',help='options = [dj30,nasdaq,kospi,csi300,sp500]')
@@ -38,11 +50,11 @@ def main():
     parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='location of model checkpoints')
 
     # forecasting task
-    parser.add_argument('--valid_year', type=int, default=2020, help='select valid period')
-    parser.add_argument('--test_year', type=int, default=2021, help='select test period')
+    parser.add_argument('--valid_year', type=int, default=2020, help='select valid period') #2020
+    parser.add_argument('--test_year', type=int, default=2021, help='select test period') #2021
     parser.add_argument('--seq_len', type=int, default=20, help='input sequence length')  # 12
     parser.add_argument('--label_len', type=int, default=5, help='start token length')  # 5
-    parser.add_argument('--pred_len', type=int, default=5, help='prediction sequence length')  # 1,5,20
+    parser.add_argument('--pred_len', type=int, default=1, help='prediction sequence length')  # 1,5,20
     parser.add_argument('--freq', type=str, default='d',
                         help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, '  # d
                              'b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h')
@@ -54,6 +66,9 @@ def main():
     parser.add_argument('--enc_in', type=int, help='encoder input size (auto-detected from data)', required=False)
     parser.add_argument('--dec_in', type=int, help='decoder input size (auto-detected from data)', required=False)
     parser.add_argument('--c_out', type=int, default=1, help='output size')  # 26
+    parser.add_argument('--mode_select', type=str, default='random',help='for FEDformer, there are two mode selection method, options: [random, low]')
+    parser.add_argument('--modes', type=int, default=64, help='modes to be selected random 64')
+    parser.add_argument('--moving_avg', default=[24], help='window size of moving average')
     parser.add_argument('--d_model', type=int, default=512, help='dimension of model')
     parser.add_argument('--n_heads', type=int, default=8, help='num of heads')
     parser.add_argument('--e_layers', type=int, default=2, help='num of encoder layers')
@@ -72,7 +87,7 @@ def main():
     parser.add_argument('--itr', type=int, default=1, help='experiments times')
     parser.add_argument('--train_epochs', type=int, default=10, help='train epochs')
     parser.add_argument('--patience', type=int, default=5, help='early stopping patience')
-    parser.add_argument('--learning_rate', type=float, default=0.00001, help='optimizer learning rate')
+    parser.add_argument('--learning_rate', type=float, default=0.0001, help='optimizer learning rate')
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
     parser.add_argument('--lradj', type=str, default='type1', help='adjust learning rate')
     # GPU
@@ -82,9 +97,10 @@ def main():
     parser.add_argument('--devices', type=str, default='0,1', help='device ids of multi gpus')
 
     #portoflio
-    parser.add_argument('--fee_rate', type=float, default=0.0001, help='tax fee rate')
-    parser.add_argument('--select_factor', type=int, default=2, help='select factor to determine the number of stocks in portfolio')
-    parser.add_argument('--num_stocks', type=int ,help='number of stocks to include in the portfolio')
+    parser.add_argument('--fee_rate', type=float, default=0.001, help='tax fee rate')
+    parser.add_argument('--complex_fee', action='store_true', default=True)
+    # parser.add_argument('--select_factor', type=int, default=2, help='select factor to determine the number of stocks in portfolio')
+    parser.add_argument('--num_stocks', type=int ,help='number of stocks to include in the portfolio',default=20)
     args = parser.parse_args()
 
     # Automatically set root_path and data_path based on market and data arguments
@@ -110,7 +126,8 @@ def main():
         args.dec_in = num_features if args.dec_in is None else args.dec_in
 
         # Set num_stocks based on unique tickers
-        args.num_stocks = len(data['tic'].unique()) // args.select_factor
+        if (not args.num_stocks ) or (args.num_stocks > len(data['tic'].unique())):
+            args.num_stocks = len(data['tic'].unique())
 
         print(f"Detected {num_features} input features and select {args.num_stocks}  among {len(data['tic'].unique())} unique stocks. Setting enc_in={args.enc_in}, dec_in={args.dec_in}.")
         print(f"Detected {num_features} input features. Setting enc_in={args.enc_in}, dec_in={args.dec_in}.")
@@ -118,7 +135,7 @@ def main():
         print(f"Error loading data from {data_file_path}: {e}")
         return
         # Setting and logging configuration
-    setting_components = [f"{args.train_method}",
+    setting_components = [f"{args.model}",f"{args.train_method}",
                           f"moe_train-{args.moe_train}",
                           args.market,
                           args.data,
@@ -128,8 +145,9 @@ def main():
                           ]
     # Combine components to form the setting string
     setting = "_".join(setting_components)
-
-    result_dir = os.path.join("./results", setting)
+    unique_id = uuid.uuid4().hex[:8]
+    unique_setting = f"{setting}_{unique_id}"
+    result_dir = os.path.join("./results", unique_setting)
     os.makedirs(result_dir, exist_ok=True)
 
     # Initialize logger with result directory
@@ -149,25 +167,39 @@ def main():
     if args.seed is None:
         args.seed = int(time.time()) % (2 ** 32)  # Generate a seed based on current time
         print(f"No seed provided. Generated random seed: {args.seed}")
+
     seed = args.seed
     fix_seed(seed)
-    # Training or Backtesting logic
+
 
 
     if args.is_training:
         # Train experts
         if args.moe_train:
-            exp = Exp_MOE(args)
-            exp.train(setting)
-            logger.info(f">>>>>>> Expert + MOE Backtesting: {setting} <<<<<<<<<<<<<<<<<<<<<<<<<<<")
-            exp.backtest(setting)
+            if not args.transfer:
+                exp = Exp_MOE(args,unique_setting)
+                exp.train(unique_setting)
+                logger.info(f">>>>>>> Expert + MOE Backtesting: {setting} <<<<<<<<<<<<<<<<<<<<<<<<<<<")
+                exp.backtest(unique_setting)
+            else:
+                args.train_method = 'Supervise'
+                args.moe_train = False
+                exp_supervise = Exp_Supervise(args,unique_setting)
+                exp_supervise.train(unique_setting)
+                logger.info(f">>>>>>> Complete supervise learning <<<<<<<<<<<<<<<<<<<<<<<<<<<")
+                args.train_method = 'Reinforce'
+                args.moe_train = True
+                exp = Exp_MOE(args,unique_setting)
+                exp.train(setting)
+                logger.info(f">>>>>>> Expert + MOE Backtesting: {setting} <<<<<<<<<<<<<<<<<<<<<<<<<<<")
+                exp.backtest(unique_setting)
         else:
-            exp = Exp_Supervise(args) if args.train_method == 'Supervise' else Exp_Reinforce(args)
-            exp.train(setting)
+            exp = Exp_Supervise(args,unique_setting) if args.train_method == 'Supervise' else Exp_Reinforce(args,unique_setting)
+            exp.train(unique_setting)
             logger.info(f">>>>>>> Backtesting: {setting} <<<<<<<<<<<<<<<<<<<<<<<<<<<")
-            exp.backtest(setting)
+            exp.backtest(unique_setting)
     else:
-        exp = Exp_Supervise(args) if args.train_method == 'Supervise' else Exp_Reinforce(args)
+        exp = Exp_Supervise(args,unique_setting) if args.train_method == 'Supervise' else Exp_Reinforce(args,unique_setting)
 
         if args.moe_train:
             logger.info(f">>>>>>> Expert + MOE Backtesting: {setting} <<<<<<<<<<<<<<<<<<<<<<<<<<<")

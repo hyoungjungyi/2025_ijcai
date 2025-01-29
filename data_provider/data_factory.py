@@ -33,33 +33,39 @@ def data_provider(args, flag):
 
         # Dataset 생성
         # 만약 moe_train이면 use_multi_horizon=True, 아니면 False 식으로 예시
-    use_multi_horizon = args.moe_train
-    lookaheads = args.horizons if use_multi_horizon else None
-    if args.train_method =='Supervise':
-        dataset = Dataset_Custom(
-            root_path=args.root_path,
-            data_path=args.data_path,
-            flag=flag,
-            size=[args.seq_len, args.label_len, args.pred_len],
-            timeenc=(1 if args.embed == 'timeF' else 0),
-            freq=args.freq
-        )
-
+    if args.moe_train:
+        use_multi_horizon = True
+        use_step_sampling = False
     else:
-        dataset = TimeSeriesDataset(
-            root_path=args.root_path,
-            data_path=args.data_path,
-            flag=flag,
-            valid_year=args.valid_year,
-            test_year=args.test_year,
-            size=[args.seq_len, args.label_len, args.pred_len],
-            use_multi_horizon=use_multi_horizon,
-            lookaheads=lookaheads if lookaheads else [args.pred_len],  # 단일이면 [pred_len] 가정
-            scale=True,
-            timeenc=(1 if args.embed == 'timeF' else 0),
-            freq=args.freq,
-            step_size=args.pred_len if args.train_method != 'Supervise' else None
-        )
+        use_multi_horizon = False
+        use_step_sampling = True
+    lookaheads = args.horizons if use_multi_horizon else None
+    # if args.train_method =='Supervise':
+    #     dataset = Dataset_Custom(
+    #         root_path=args.root_path,
+    #         data_path=args.data_path,
+    #         flag=flag,
+    #         size=[args.seq_len, args.label_len, args.pred_len],
+    #         timeenc=(1 if args.embed == 'timeF' else 0),
+    #         freq=args.freq
+    #     )
+    #
+    # else:
+    dataset = TimeSeriesDataset(
+        root_path=args.root_path,
+        data_path=args.data_path,
+        flag=flag,
+        valid_year=args.valid_year,
+        test_year=args.test_year,
+        size=[args.seq_len, args.label_len, args.pred_len],
+        use_multi_horizon=use_multi_horizon,
+        lookaheads=lookaheads if lookaheads else [args.pred_len],
+        scale=True,
+        timeenc=(1 if args.embed == 'timeF' else 0),
+        freq=args.freq,
+        step_size=args.pred_len if args.train_method != 'Supervise' else None,
+        use_step_sampling=use_step_sampling
+    )
 
     print(flag, len(dataset))
 

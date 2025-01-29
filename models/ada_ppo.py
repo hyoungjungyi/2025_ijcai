@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal, Categorical
-from models import Transformer  # 올바른 import 경로를 확인하세요
-
+from models import Transformer,Informer,Reformer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer
+import os
 class TemporalAttention(nn.Module):
     def __init__(self, d_model):
         super(TemporalAttention, self).__init__()
@@ -18,14 +18,28 @@ class TemporalAttention(nn.Module):
         return output
 
 class ADA_PPO(nn.Module):
-    def __init__(self, model_name, configs, deterministic=False):
+    def __init__(self, model_name, configs,setting, deterministic=False):
         super(ADA_PPO, self).__init__()
         self.model_name = configs.model
-        self.model_dict = {'Transformer': Transformer}
+        self.model_dict = {
+            'Transformer': Transformer,
+            'Informer': Informer,
+            'Reformer': Reformer,
+            'Flowformer': Flowformer,
+            'Flashformer': Flashformer,
+            'Autoformer': Autoformer,
+            'FEDformer': Fedformer,
+            'iTransformer': itransformer,
 
+        }
+        self.model = self.model_dict[model_name].Model(configs)
 
         # 모델과 파라미터 초기화
-        self.model = self.model_dict[model_name].Model(configs)
+        if configs.transfer:
+            self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint.pth')))
+            if configs.freeze:
+                for param in self.model.parameters():
+                    param.requires_grad = False
         self.d_model = configs.d_model
 
         self.pred_len = configs.pred_len
@@ -55,7 +69,7 @@ class ADA_PPO(nn.Module):
 
     def pi(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # 모델을 통한 순전파
-        pred_scores = self.model(x_enc, x_mark_enc, x_dec, x_mark_dec)  # [N, P]
+        pred_scores = self.model(x_enc, x_mark_enc, x_dec, x_mark_dec)  # [N, P] 종목마다 p일치를 예측한거야
 
         N = pred_scores.shape[0]
 
@@ -66,7 +80,7 @@ class ADA_PPO(nn.Module):
         selection_entropy = selection_dist.entropy()
 
 
-        if self.deterministic:
+        if (not self.training) or self.deterministic:
             # 그리디 선택: 가장 높은 확률을 가진 거래 기간 선택
             selected_period_indices = torch.argmax(selection_probs, dim=1)  # [N]
         else:
@@ -106,7 +120,7 @@ class ADA_PPO(nn.Module):
             std = torch.clamp(F.softplus(self.layer_std[i](selected_pred_scores_pad)), min=1e-2).squeeze(-1)  # [M]
 
             dist = Normal(mu, std)
-            if not self.training and self.deterministic:
+            if (not self.training) or self.deterministic:
                 # 평가 시(deterministic) -> action = tanh(mu)
                 action = torch.tanh(mu).squeeze(-1)
                 real_log_prob = torch.zeros_like(action)
@@ -156,7 +170,7 @@ class ADA_PPO(nn.Module):
         # 2) 각 horizon별 value_i를 구한 뒤, selection_probs로 가중합
         value_list = []
         for i, period in enumerate(self.periods):
-            sub_scores = pred_scores[:, :period]  # 마지막 period개
+            sub_scores = pred_scores[:, :period]
             pad_len = self.pred_len - period
             sub_scores_pad = F.pad(sub_scores, (0, pad_len), "constant", 0)  # [N, pred_len]
 

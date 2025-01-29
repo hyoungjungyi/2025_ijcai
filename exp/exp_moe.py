@@ -1,3 +1,4 @@
+import copy
 import os
 import time
 import warnings
@@ -8,7 +9,7 @@ import torch.nn as nn
 from torch import optim
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
-from models import Transformer,moe,ppo,tradingenv,ada_ppo
+from models import Transformer,moe,ppo,ada_ppo,tradingenv,Informer,Reformer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer
 from utils.tools import EarlyStopping, adjust_learning_rate, visual,port_visual
 from utils.metrics import metric
 from utils.backtest import *
@@ -37,38 +38,29 @@ def get_sample(dataset, index, device):
     )
 
 class Exp_MOE(Exp_Basic):
-    def __init__(self, args):
-        super(Exp_MOE, self).__init__(args)
+    def __init__(self, args,setting):
+        super(Exp_MOE, self).__init__(args,setting)
+        self.setting = setting
+        self.old_model = ada_ppo.ADA_PPO(args.model, args, setting, deterministic=False).to(self.device)
+        self.old_model.eval()
+        for param in self.old_model.parameters():
+            param.requires_grad = False
         self.horizons = args.horizons
         self.temperature = self.args.temperature
         self.env = tradingenv.TradingEnvironment(self.args)
-        #### agent config###
-        if self.args.num_stocks % 2==1:
-            self.batch_size = self.args.num_stocks * self.args.select_factor +1
-        else:
-            self.batch_size = self.args.num_stocks * self.args.select_factor
-
         self.buffer_size = 1  #20
         self.gamma =0.99
         self.lmbda = 0.95
         self.eps_clip = 0.1
+        self.beta = 0.1
         self.data = []
         self.max_clip = 10  # 적절한 범위 설정 (예: 10은 exp(10) = 22026 정도)
         self.min_clip = -10  # exp(-10) ≈ 0
-        ####################
-        # if args.moe_train:
-        #     self.daily_model = self._build_model()
-        #     self.weekly_model = self._build_model()
-        #     self.monthly_model = self._build_model()
-        #     self.moe_model = moe.MOEModel(
-        #         input_size=self.args.enc_in,
-        #         experts=[self.daily_model, self.weekly_model, self.monthly_model],
-        #         train_experts=False  # Freeze experts during MOE training
-        #     )
-        ##############################
+
+
     def _build_model(self):
 
-        model = ada_ppo.ADA_PPO(self.args.model, self.args, deterministic=False)
+        model = ada_ppo.ADA_PPO(self.args.model, self.args,self.setting,deterministic=False)
 
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.device_ids)
@@ -81,7 +73,8 @@ class Exp_MOE(Exp_Basic):
         return data_set, data_loader
 
     def _select_optimizer(self):
-        model_optim = optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
+        trainable_params = filter(lambda p: p.requires_grad, self.model.parameters())
+        model_optim = optim.Adam(trainable_params, lr=self.args.learning_rate)
         return model_optim
 
     def _select_criterion(self):
@@ -107,6 +100,7 @@ class Exp_MOE(Exp_Basic):
         for epoch in range(self.args.train_epochs):
             self.logger.info(f"[Train] Epoch {epoch + 1}/{self.args.train_epochs}")
             self.model.train()
+            self.old_model.load_state_dict(self.model.state_dict())
             self.env.reset()
 
             i = 0
@@ -117,16 +111,17 @@ class Exp_MOE(Exp_Basic):
                 batch_x, batch_y, batch_x_mark, batch_y_mark, ground_true = get_sample(train_dataset, i, self.device)
                 dec_zeros = torch.zeros_like(batch_y[:, -self.args.pred_len:, :])
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_zeros], dim=1)
-                scores, log_prob, entropy, selected_period_indices = self.model.pi(
+                scores, log_prob, entropy, selected_period_indices = self.old_model.pi(
                     batch_x, batch_x_mark, dec_inp, batch_y_mark
                 )
                 # Select top stocks based on scores
                 top_indices = torch.topk(scores, self.args.num_stocks, dim=0).indices
                 selected_scores = scores[top_indices]
-                weights = torch.softmax(selected_scores / self.temperature, dim=0)
-                returns = ground_true[:,selected_period_indices]
-                selected_returns = returns[top_indices]
-                reward = self.env.step(weights,selected_returns)
+                topk_weights = torch.softmax(selected_scores / self.temperature, dim=0)
+                final_weights = torch.zeros_like(scores)
+                final_weights[top_indices]  = topk_weights
+                returns = ground_true[:, selected_period_indices]
+                reward = self.env.step(final_weights,returns)
                 chosen_horizon =self.horizons[selected_period_indices]
                 next_i = i+chosen_horizon
                 done = (next_i >= n_data - 1)
@@ -156,7 +151,7 @@ class Exp_MOE(Exp_Basic):
                 if len(self.env.rollout) >= self.env.rollout_len:
                     self.put_data(self.env.rollout)
                     self.env.rollout = []
-                    loss_val = self.train_net(K_epoch=1, model_optim=model_optim)
+                    loss_val = self.train_net(K_epoch=3, model_optim=model_optim)
                     if loss_val is not None:
                         epoch_loss.append(loss_val)
             vali_loss, test_loss = self.vali()
@@ -166,6 +161,12 @@ class Exp_MOE(Exp_Basic):
                 f"[Epoch {epoch + 1}] TrainLoss={avg_train_loss:.4f}, "
                 f"ValiLoss={vali_loss:.4f}, TestLoss={test_loss:.4f}"
             )
+            self.wandb.log({
+                "Train Loss": avg_train_loss,
+                "Validation Loss": vali_loss,
+                "Test Loss": test_loss,
+                "Epoch": epoch
+            })
 
             # Early Stopping
             early_stopping(vali_loss, self.model, path)
@@ -213,10 +214,11 @@ class Exp_MOE(Exp_Basic):
                 # Select top stocks based on scores
                 top_indices = torch.topk(scores, self.args.num_stocks, dim=0).indices
                 selected_scores = scores[top_indices]
-                weights = torch.softmax(selected_scores / self.temperature, dim=0)
+                topk_weights = torch.softmax(selected_scores / self.temperature, dim=0)
+                final_weights = torch.zeros_like(scores)
+                final_weights[top_indices] = topk_weights
                 returns = ground_true[:, selected_period_indices]
-                selected_returns = returns[top_indices]
-                reward = env_temp.step(weights,selected_returns)
+                reward = env_temp.step(final_weights,returns)
                 chosen_horizon = self.horizons[selected_period_indices]
                 i += chosen_horizon
                 done = (i >= n_data - 1)
@@ -236,7 +238,7 @@ class Exp_MOE(Exp_Basic):
                 # loss = value_loss + pred_loss
                 value_loss = F.smooth_l1_loss(value, td_target)
                 pred_loss = F.smooth_l1_loss(scores, returns)  # scores vs ground_true
-                loss = value_loss + pred_loss
+                loss = value_loss + self.beta*pred_loss
 
                 total_loss += loss.item()
                 total_value_loss += value_loss.item()
@@ -267,8 +269,8 @@ class Exp_MOE(Exp_Basic):
         env_test = tradingenv.TradingEnvironment(self.args)
         env_test.reset()
 
-        portfolio_values = []
-        portfolio_dates = []
+        portfolio_values = [1.0]
+        portfolio_dates = [backtest_dataset.unique_dates[0]]
 
         i = 0
         while i < n_data:
@@ -281,21 +283,24 @@ class Exp_MOE(Exp_Basic):
                 scores, log_prob, entropy, selected_period_indices = self.model.pi(
                     batch_x, batch_x_mark, dec_inp, batch_y_mark
                 )
-            current_date = backtest_dataset.unique_dates[i]
+
+            current_date = backtest_dataset.unique_dates[i + self.args.seq_len]
             # Select top stocks based on scores
             top_indices = torch.topk(scores, self.args.num_stocks, dim=0).indices
             selected_scores = scores[top_indices]
-            weights = torch.softmax(selected_scores / self.temperature, dim=0)
-            selected_returns = ground_true[:, selected_period_indices][top_indices]
+            topk_weights = torch.softmax(selected_scores / self.temperature, dim=0)
+            final_weights = torch.zeros_like(scores)
+            final_weights[top_indices] = topk_weights
+            returns = ground_true[:, selected_period_indices]
             chosen_horizon = self.horizons[selected_period_indices]
-            reward = env_test.step(weights, selected_returns)
+            reward = env_test.step(final_weights,returns)
             portfolio_values.append(env_test.portfolio_value)
             portfolio_dates.append(current_date)
-
             i += chosen_horizon
 
         final_pf = env_test.portfolio_value
         self.logger.info(f"[BackTest] Final Portfolio Value = {final_pf:.4f}")
+        self.wandb.log({"BackTest Final Portfolio Value": final_pf})
         start_date = backtest_dataset.unique_dates[0]
         end_date = backtest_dataset.unique_dates[-1]
 
@@ -371,7 +376,6 @@ class Exp_MOE(Exp_Basic):
 
         mini_batches = []
         for i in range(0, len(batch_data["batch_x"])):
-            # scalar_index = i //self.batch_size
             mini_batches.append((
                 batch_data["batch_x"][i],
                 batch_data["batch_y"][i],
@@ -451,10 +455,12 @@ class Exp_MOE(Exp_Basic):
 
                     surr1 = ratio * advantage
                     surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantage
-                    pred_loss = F.smooth_l1_loss(self.model.pred(batch_x, batch_x_mark, batch_y, batch_y_mark),
-                                                 return_data)
-                    loss = -torch.min(surr1, surr2) + F.smooth_l1_loss(
-                        self.model.value(batch_x, batch_x_mark, batch_y, batch_y_mark), td_target) + pred_loss
+                    pred_loss = F.smooth_l1_loss(self.model.pred(batch_x, batch_x_mark, batch_y, batch_y_mark),return_data)
+                    policy_loss = -torch.min(surr1, surr2)
+                    value_loss = F.smooth_l1_loss(self.model.value(batch_x, batch_x_mark, batch_y, batch_y_mark), td_target)
+                    # self.logger.info(f"ratio:{ratio},[train_net_loss] pred_loss :{pred_loss.item():.4f} policy_loss :{policy_loss.item():.4f} value_loss :{value_loss.item():.4f}")
+                    loss = self.beta * pred_loss + policy_loss + value_loss
+                    # self.logger.info(f"[train_net_loss] total_loss :{loss.item():.4f}")
                     losses += loss.mean().item()
                     model_optim.zero_grad()
                     loss.mean().backward()

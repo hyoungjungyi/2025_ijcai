@@ -2,15 +2,20 @@ import logging
 import os
 import torch
 import numpy as np
+import wandb
 
 
 class Exp_Basic(object):
-    def __init__(self, args):
+    def __init__(self, args,setting):
         self.args = args
+        self.setting = setting
         self.logger = logging.getLogger()
         self.device = self._acquire_device()
         self.model = self._build_model().to(self.device)
-
+        self.wandb = wandb.init(config=args,
+                   project=args.wandb_project_name,
+                   group=args.wandb_group_name,
+                   name=args.wandb_session_name)
     def _build_model(self):
         raise NotImplementedError
 
