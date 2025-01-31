@@ -1,10 +1,10 @@
 #!/bin/bash
 
 markets=("dj30" "nasdaq" "kospi" "csi300")
-data_options=("general" "alpha158")
-pred_lens=(20)
-lr=( 0.00001)
-gpu_cores=(4 5 6 7)
+data_options=("alpha158")
+model=('Transformer' 'Informer' 'Reformer' 'Autoformer' 'Flashformer' 'itransformer')
+lr=(0.00001 0.00005)
+gpu_cores=(0 1 2 3 4 5 6 7)
 memory_threshold=5000  # 최소 필요 메모리 (MB)
 check_interval=60      # GPU 체크 주기 (초)
 max_jobs_per_gpu=2     # GPU당 동시에 실행 가능한 최대 실험 개수
@@ -73,9 +73,9 @@ clean_finished_jobs() {
 }
 
 var=0
-for experiment_count in {1..3}; do
+for experiment_count in {1..4}; do
     for market in "${markets[@]}"; do
-        for data in "${data_options[@]}"; do
+        for model in "${model[@]}"; do
             for lr_val in "${lr[@]}"; do
                 while :; do
                     clean_finished_jobs
@@ -92,7 +92,7 @@ for experiment_count in {1..3}; do
                         fi
 
                         echo "Using GPU $best_gpu for experiment (Market: $market, Data: $data, LR: $lr_val)"
-                        CUDA_VISIBLE_DEVICES=$best_gpu python run.py --market "$market" --data "$data" --learning_rate "$lr_val" --moe_train \
+                        CUDA_VISIBLE_DEVICES=$best_gpu python run.py --market "$market" --model "$model" --learning_rate "$lr_val"  \
                             --wandb_session_name "setting_${var}_exp${experiment_count}_$(date +%s)" &
 
                         pid=$!

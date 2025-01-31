@@ -300,28 +300,13 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
 
     # Tight layout
     plt.tight_layout()
-
-    # Plot portfolio values
-    # plt.figure(figsize=(12, 8))
-    # plt.plot(index_dates, index_portfolio_values, label="Index", color="orange")
-    # plt.plot(data['date'].unique(), bh_portfolio_values, label="Buy-and-Hold", color="purple")
-    # plt.plot(data['date'].unique(), daily_portfolio_values, label="Daily Rebalancing", color="blue")
-    # if external_portfolio is not None:
-    #     plt.plot(external_dates, external_portfolio, label="External Portfolio", color="blue")
-    # plt.plot(weekly_dates_used, weekly_values, label="Weekly Rebalancing", color="green")
-    # plt.plot(monthly_dates_used, monthly_values, label="Monthly Rebalancing", color="red")
-    # plt.title("Portfolio Value Changes")
-    # plt.xlabel("Date")
-    # plt.ylabel("Portfolio Value")
-    # plt.legend()
-    # plt.grid(True)
-    # plt.tight_layout()
     if folder_path is not None:
         plt.savefig(f"{folder_path}/portfolio_comparison_plot.png")
         plt.close()
         metrics_summary_df_transposed.to_csv(os.path.join(folder_path, 'metrics_comparison.csv'))
     else:
         plt.show()
+    return metrics_summary
 
 
 # Example usage

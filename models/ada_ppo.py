@@ -29,7 +29,7 @@ class ADA_PPO(nn.Module):
             'Flashformer': Flashformer,
             'Autoformer': Autoformer,
             'FEDformer': Fedformer,
-            'iTransformer': itransformer,
+            'itransformer': itransformer,
 
         }
         self.model = self.model_dict[model_name].Model(configs)

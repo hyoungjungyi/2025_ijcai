@@ -33,15 +33,15 @@ def main():
     parser.add_argument('--model',type=str,default='itransformer',help='options = [Transformer,Reformer,Informer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer]')
     parser.add_argument('--is_training', type=int, default=1, help='status')
     parser.add_argument('--train_method',type= str,default='Reinforce',help='options = [Reinforce, Supervise]')
-    parser.add_argument('--moe_train', action='store_true', help='Enable MOE training after expert training',default=False)
-    parser.add_argument('--transfer', action='store_true', help='whether to use transfer learning',default = True)
+    parser.add_argument('--moe_train', action='store_true', help='Enable MOE training after expert training',default=True)
+    parser.add_argument('--transfer', action='store_true', help='whether to use transfer learning',default = False)
     parser.add_argument('--freeze', action='store_true', help='whether to use transfer learning', default=True)
 
 
     parser.add_argument('--temperature', type=float, default=1.0, help='temperature parameter for softmax')
     # data loader
     parser.add_argument('--market',type=str,default='dj30',help='options = [dj30,nasdaq,kospi,csi300,sp500]')
-    parser.add_argument('--data', type=str, default='general', help='options = [general,alpha158]')
+    parser.add_argument('--data', type=str, default='alpha158', help='options = [general,alpha158]')
     parser.add_argument('--root_path', type=str, help='root path for the dataset')
     parser.add_argument('--data_path', type=str, help='data path for the dataset')
     # parser.add_argument('--root_path', type=str, default='./data/kospi/',help='options = [dj30,nasdaq,kospi,csi300]')
@@ -54,7 +54,7 @@ def main():
     parser.add_argument('--test_year', type=int, default=2021, help='select test period') #2021
     parser.add_argument('--seq_len', type=int, default=20, help='input sequence length')  # 12
     parser.add_argument('--label_len', type=int, default=5, help='start token length')  # 5
-    parser.add_argument('--pred_len', type=int, default=1, help='prediction sequence length')  # 1,5,20
+    parser.add_argument('--pred_len', type=int, default=20, help='prediction sequence length')  # 1,5,20
     parser.add_argument('--freq', type=str, default='d',
                         help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, '  # d
                              'b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h')
@@ -85,8 +85,8 @@ def main():
     #optimization
     parser.add_argument('--num_workers', type=int, default=1, help='data loader num workers')
     parser.add_argument('--itr', type=int, default=1, help='experiments times')
-    parser.add_argument('--train_epochs', type=int, default=10, help='train epochs')
-    parser.add_argument('--patience', type=int, default=5, help='early stopping patience')
+    parser.add_argument('--train_epochs', type=int, default=1, help='train epochs')
+    parser.add_argument('--patience', type=int, default=3, help='early stopping patience')
     parser.add_argument('--learning_rate', type=float, default=0.0001, help='optimizer learning rate')
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
     parser.add_argument('--lradj', type=str, default='type1', help='adjust learning rate')

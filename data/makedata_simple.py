@@ -5,14 +5,12 @@ import os
 import time
 
 
-# 티커 유효성 검증 함수 정의
 def validate_tickers(tickers):
     valid_tickers = []
     invalid_tickers = []
     for ticker in tickers:
         try:
             info = yf.Ticker(ticker).info
-            # 'regularMarketPrice'가 존재하면 유효한 티커로 간주
             if 'regularMarketPrice' in info and info['regularMarketPrice'] is not None:
                 valid_tickers.append(ticker)
             else:
@@ -20,146 +18,181 @@ def validate_tickers(tickers):
         except Exception:
             invalid_tickers.append(ticker)
     if invalid_tickers:
-        print(f"유효하지 않은 티커 발견 및 제외: {invalid_tickers[:5]} ...")  # 너무 많은 티커가 있을 경우 일부만 출력
+        print(f"유효하지 않은 티커 발견 및 제외: {invalid_tickers[:5]} ...")
     return valid_tickers
 
 
-# 단일 마켓의 데이터를 가져오고 처리하는 함수 정의
 def fetch_market_data(market, index_ticker, tickers, start_date, end_date):
-    print(f"Fetching data for market: {market.upper()}")
+    """
+    인덱스 데이터는 yfinance에서 가져오고,
+    주식 데이터(Adj Close)는 raw_{market}_data_filtered.csv에서 불러온 뒤,
+    'stock_data'에 있는 날짜(현지 시장 기준)만 사용하여 index_data를 필터링.
+    그리고 연속으로 모든 종목이 같은 값을 가지는 날(중복 행)은 최초 하루만 남기고 제거.
+    """
+    print(f"=== Fetching data for market: {market.upper()} ===")
 
-    # 인덱스 데이터 가져오기 (모든 칼럼)
-    print(f"Fetching index data for {index_ticker}")
+    # 1) 인덱스 데이터 (yfinance)
+    print(f"[Index] Fetching index data for {index_ticker}...")
     index_data = yf.download(index_ticker, start=start_date, end=end_date)
-    print(f"Index data fetched: {index_data.shape}")
-
-    # 인덱스 데이터 인덱스 정규화 (날짜만 남기기)
     index_data.index = pd.to_datetime(index_data.index).normalize()
-    print(f"Normalized index data head:\n{index_data.head()}")
+    index_data.index = index_data.index.tz_localize(None)
+    index_data.index.name = 'date'
+    print(f"[Index] Data fetched: {index_data.shape}")
 
-    # 'Adj Close'만 선택하여 stock_data 가져오기
-    print(f"Fetching stock data for {len(tickers)} tickers")
-    stock_data = yf.download(tickers, start=start_date, end=end_date)['Adj Close']
-    print(f"Stock data fetched: {stock_data.shape}")
+    # 2) 주식 데이터 (raw_{market}_data_filtered.csv)
+    raw_csv_path = f"raw_{market}_data_filtered.csv"
+    print(f"[Stocks] Loading from {raw_csv_path}")
+    if not os.path.exists(raw_csv_path):
+        print(f"(!) File not found: {raw_csv_path}")
+        return
 
-    # 주식 데이터가 시리즈인 경우 데이터프레임으로 변환
-    if isinstance(stock_data, pd.Series):
-        stock_data = stock_data.to_frame()
-        print("Converted Series to DataFrame for stock_data.")
+    raw_df = pd.read_csv(raw_csv_path)
+    # 문자열 -> datetime 변환
+    raw_df['date'] = pd.to_datetime(raw_df['date'], errors='coerce')
+    # 날짜가 없는 행 제거
+    raw_df.dropna(subset=['date'], inplace=True)
+    raw_df.sort_values(by=['date', 'tic'], inplace=True)
 
-    # 주식 데이터 인덱스 정규화 (날짜만 남기기)
-    stock_data.index = pd.to_datetime(stock_data.index).normalize()
-    print(f"Normalized stock data head:\n{stock_data.head()}")
+    # Pivot (행=날짜, 열=tic, 값=adjclose)
+    stock_data = raw_df.pivot(index='date', columns='tic', values='adjclose')
+    stock_data.index = stock_data.index.normalize()
+    stock_data.index = stock_data.index.tz_localize(None)
+    stock_data.index.name = 'date'
+    print(f"[Stocks] Loaded shape: {stock_data.shape}")
 
-    # 데이터 범위 확인
-    print(f"Index data date range: {index_data.index.min()} to {index_data.index.max()}")
-    print(f"Stock data date range: {stock_data.index.min()} to {stock_data.index.max()}")
+    # ----------------------------------------------------------------
+    # 2-1) 날짜 교집합 (stock_data vs index_data)
+    #     -> 'stock_data'를 기준(한국시간 장 열린 날)
+    # ----------------------------------------------------------------
+    common_dates = stock_data.index.intersection(index_data.index)
+    stock_data = stock_data.loc[common_dates]
+    index_data = index_data.loc[common_dates]
 
+    print(f"[After Intersection] stock_data.shape = {stock_data.shape}, index_data.shape = {index_data.shape}")
 
-    # 결측값 처리
-    index_data = index_data.fillna(method='ffill').fillna(method='bfill')
-    stock_data = stock_data.fillna(0)
+    # ----------------------------------------------------------------
+    # 2-2) '연속으로 모든 종목의 값이 동일한' 행 식별 & 제거
+    # ----------------------------------------------------------------
+    #  - eq(...).all(axis=1)는 현재 행과 바로 이전 행을 비교해, 모든 칼럼 동일하면 True
+    #  - 한 번 True가 되면, "바로 전날과 동일"한 날이므로 중복 제거
+    consecutive_dup_mask = stock_data.eq(stock_data.shift(1)).all(axis=1)
+    if consecutive_dup_mask.any():
+        num_dup_days = consecutive_dup_mask.sum()
+        print(f"[Stocks] 연속 중복 일자 수: {num_dup_days}")
+        # True인 날(연속 중복) 제거
+        stock_data = stock_data[~consecutive_dup_mask]
 
-    # 수익률 계산 ('Adj Close'만 사용하므로 feature는 1)
-    returns = stock_data.pct_change().fillna(0)
+    print(f"[After Remove Duplicates] stock_data.shape = {stock_data.shape}")
 
-    # 3차원 NumPy 배열 생성 [date, num_stock, feature=1]
-    num_dates = stock_data.shape[0]
-    num_tickers = stock_data.shape[1]
-    num_features = 1  # 'Adj Close'만 사용
+    # (선택) 특정 구간(전일과 가격 동일 비율) 체크
+    for col in stock_data.columns:
+        daily_diff = stock_data[col].diff().fillna(0)
+        zero_diff_ratio = (daily_diff == 0).mean()
+        if zero_diff_ratio > 0.15:
+            print(f"[Stocks] {col} : {zero_diff_ratio*100:.1f}% 날짜가 전일과 동일.")
 
-    print(f"Number of features: {num_features}")
-    print(f"Number of tickers: {num_tickers}")
+    # 3) 수익률 계산 (중복 제거 후)
+    returns = stock_data.pct_change().dropna()
+    returns.index = returns.index.tz_localize(None)
+    returns.index.name = 'date'
 
-    # stocks_data_np: [date, num_stock, feature]
-    stocks_data_np = stock_data.values.T.reshape((num_tickers,num_dates, num_features))
+    zero_return_tickers = (returns == 0).all(axis=0)
+    zero_return_tickers = zero_return_tickers[zero_return_tickers].index.tolist()
+    if zero_return_tickers:
+        print(f"[Stocks] 전 구간 0% 수익률 티커: {zero_return_tickers}")
 
-    # returns_np: [date, num_stock, feature]
+    # ----------------------------------------------------------------
+    # 4) 최종 날짜 인덱스 재동기화
+    #    (returns는 dropna()로 인해 날짜가 하나 더 줄었을 수 있음 -> 교집합으로 맞춤)
+    # ----------------------------------------------------------------
+    final_dates = stock_data.index.intersection(returns.index)
+    stock_data = stock_data.loc[final_dates]
+    returns = returns.loc[final_dates]
+    # 인덱스 데이터도 여기에 맞춰서
+    index_data = index_data.loc[final_dates]
+
+    # ----------------------------------------------------------------
+    # 5) NumPy 변환
+    # ----------------------------------------------------------------
+    # stocks_data: shape = [종목수, 날짜수, 1]
+    stocks_data = stock_data.values.T.reshape((stock_data.shape[1], stock_data.shape[0], 1))
+    # returns_np : shape = [종목수, 날짜수]
     returns_np = returns.values.T
 
-    # 'Adj Close' 데이터 2차원 데이터프레임 생성 (행: 날짜, 열: 티커)
-    adj_close_df = pd.DataFrame(stock_data.values, index=stock_data.index, columns=stock_data.columns)
-
-    # industry_classification.npy 생성: [num_tickers, num_tickers] 행렬, 각 요소는 1/num_tickers로 정규화
+    num_tickers = stock_data.shape[1]
     industry_classification = np.full((num_tickers, num_tickers), 1 / num_tickers)
 
-    # 마켓별 디렉토리 생성
+    # 6) 결과 저장
     market_dir = f'./data/{market.upper()}'
     os.makedirs(market_dir, exist_ok=True)
 
-    # 인덱스 데이터를 CSV로 저장 ('Adj Close'만 포함)
-    index_data.to_csv(os.path.join(market_dir, f'{index_ticker}.csv'))
+    index_csv_path = os.path.join(market_dir, f'{index_ticker}.csv')
+    index_data.to_csv(index_csv_path)
 
-    # 3차원 주식 데이터를 NumPy 배열로 저장
-    np.save(os.path.join(market_dir, 'stocks_data.npy'), stocks_data_np)
-
-    # 수익률 데이터를 NumPy 배열로 저장
+    np.save(os.path.join(market_dir, 'stocks_data.npy'), stocks_data)
     np.save(os.path.join(market_dir, 'ror.npy'), returns_np)
-
-    # 'Adj Close' 데이터 2차원 CSV로 저장
-    adj_close_df.to_csv(os.path.join(market_dir, f'{market}_stocks.csv'))
-
-    # industry_classification.npy 저장
+    stock_data.to_csv(os.path.join(market_dir, f'{market}_stocks.csv'))
     np.save(os.path.join(market_dir, 'industry_classification.npy'), industry_classification)
 
-    # 저장 확인 메시지 출력
-    print(f"Data for {market.upper()} saved successfully.")
-    print(f"stocks_data.npy shape: {stocks_data_np.shape}")
+    print(f"\nData for {market.upper()} saved successfully.")
+    print(f"Index data shape: {index_data.shape}")
+    print(f"Stock data shape: {stock_data.shape}")
+    print(f"stocks_data.npy shape: {stocks_data.shape}")
     print(f"returns.npy shape: {returns_np.shape}")
-    print(f"adj_close_data.csv shape: {adj_close_df.shape}")
     print(f"industry_classification.npy shape: {industry_classification.shape}\n")
 
 
-# 마켓 구성 정의
-# market_configs = {
-#
-#     'csi300': {
-#                 'index_ticker': '000300.SS',
-#                 'tickers_file': 'complete_csi300_tickers.csv',
-#                 'start_date': '2014-01-01',
-#                 'end_date': '2023-12-31'
-#             },
-# }
+# --------------------------
+# 예: 마켓 구성 정의
+# --------------------------
+
 market_configs = {
-    'kospi': {
-        'index_ticker': '^KS11',
-        'tickers_file': 'complete_kospi_tickers.csv',
-        'start_date': '2000-01-08',
-        'end_date': '2023-12-31'
-    },
-    'dj30': {
+
+
+'nasdaq': {
+    'index_ticker': '^IXIC',
+    'tickers_file': 'complete_nasdaq_tickers.csv',
+    'start_date': '2000-01-05',
+    'end_date': '2023-12-31'
+},
+'csi300': {
+    'index_ticker': '000300.SS',
+    'tickers_file': 'complete_csi300_tickers.csv',
+    'start_date': '2014-01-01',
+    'end_date': '2023-12-31'
+},
+
+
+
+'dj30': {
         'index_ticker': '^DJI',
         'tickers_file': 'complete_dj30_tickers.csv',
         'start_date': '2000-01-01',
         'end_date': '2023-12-31'
     },
-    'nasdaq': {
-        'index_ticker': '^IXIC',
-        'tickers_file': 'complete_nasdaq_tickers.csv',
-        'start_date': '2000-01-05',
-        'end_date': '2023-12-31'
-    },
-    'csi300': {
-        'index_ticker': '000300.SS',
-        'tickers_file': 'complete_csi300_tickers.csv',
-        'start_date': '2014-01-01',
-        'end_date': '2023-12-31'
-    },
 }
 
-# 각 마켓을 순회하며 데이터 가져오기
+
+
+# market_configs = {
+#     'kospi': {
+#         'index_ticker': '^KS11',
+#         'tickers_file': 'complete_kospi_tickers.csv',
+#         'start_date': '2000-01-08',
+#         'end_date': '2023-12-31'
+#     },
+# }
+
 for market, config in market_configs.items():
     try:
-        # CSV 파일에서 티커 로드
         tickers_df = pd.read_csv(config['tickers_file'])
         tickers = tickers_df['ticker'].astype(str).tolist()
         print(f"Loaded {len(tickers)} tickers for {market.upper()}")
 
-        # # 티커 유효성 검증
+        # (선택) 티커 유효성 검증
         # tickers = validate_tickers(tickers)
         # print(f"Validated {len(tickers)} tickers for {market.upper()}")
 
-        # 마켓 데이터 가져오고 저장
         fetch_market_data(
             market=market,
             index_ticker=config['index_ticker'],
@@ -168,10 +201,49 @@ for market, config in market_configs.items():
             end_date=config['end_date']
         )
 
-        # API 속도 제한을 피하기 위해 잠시 대기
         time.sleep(1)
 
     except FileNotFoundError as fnf_error:
         print(f"File not found: {fnf_error}\n")
     except Exception as e:
         print(f"An error occurred while processing market {market.upper()}: {e}\n")
+
+
+
+
+
+
+
+
+#
+# market_configs = {
+#
+#     'kospi': {
+#         'index_ticker': '^KS11',
+#         'tickers_file': 'complete_kospi_tickers.csv',
+#         'start_date': '2000-01-08',
+#         'end_date': '2023-12-31'
+#     },
+#
+# 'nasdaq': {
+#     'index_ticker': '^IXIC',
+#     'tickers_file': 'complete_nasdaq_tickers.csv',
+#     'start_date': '2000-01-05',
+#     'end_date': '2023-12-31'
+# },
+# 'csi300': {
+#     'index_ticker': '000300.SS',
+#     'tickers_file': 'complete_csi300_tickers.csv',
+#     'start_date': '2014-01-01',
+#     'end_date': '2023-12-31'
+# },
+#
+#
+#
+# 'dj30': {
+#         'index_ticker': '^DJI',
+#         'tickers_file': 'complete_dj30_tickers.csv',
+#         'start_date': '2000-01-01',
+#         'end_date': '2023-12-31'
+#     },
+#}

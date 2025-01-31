@@ -312,7 +312,7 @@ class Exp_MOE(Exp_Basic):
         folder_path = os.path.join('./results', setting)
         os.makedirs(folder_path, exist_ok=True)
 
-        run_backtest(
+        metrics = run_backtest(
             data=raw_data,
             index_data=index_data,
             start_date=start_date,   # pd.Timestamp
@@ -324,6 +324,15 @@ class Exp_MOE(Exp_Basic):
             total_periods=len(backtest_dataset.unique_dates),  # 혹은 다른 값
             folder_path=folder_path
         )
+        strategy_columns = [col for col in metrics.keys() if col != "Metric"]
+        log_data = {}  # 한 번에 모아서 로깅
+        for i, metric_name in enumerate(metrics["Metric"]):
+            for strategy in strategy_columns:
+                value = metrics[strategy][i]
+                log_data[f"test/{strategy}/{metric_name}"] = value
+
+        # 위에서 모은 데이터를 한 번에 로깅
+        self.wandb.log(log_data)
 
         return final_pf
 

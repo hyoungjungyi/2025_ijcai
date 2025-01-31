@@ -346,27 +346,27 @@ class YfinancePreprocessor:
 
 
 config_list = [  {
-        'input_path': 'raw_csi300_data.csv',
+        'input_path': 'raw_csi300_data_filtered.csv',
         'output_path': 'csi300_alpha158_data.csv',
         'start_date': '2000-01-01',
         'end_date': '2023-12-31',
         'indicator': 'alpha158'
     },  {
-        'input_path': 'raw_dj30_data.csv',
+        'input_path': 'raw_dj30_data_filtered.csv',
         'output_path': 'dj30_alpha158_data.csv',
         'start_date': '2000-01-01',
         'end_date': '2023-12-31',
         'indicator': 'alpha158'
     },
     {
-        'input_path': 'raw_kospi_data.csv',
+        'input_path': 'raw_kospi_data_filtered.csv',
         'output_path': 'kospi_alpha158_data.csv',
         'start_date': '2000-01-01',
         'end_date': '2023-12-31',
         'indicator': 'alpha158'
     },
     {
-        'input_path': 'raw_nasdaq_data.csv',
+        'input_path': 'raw_nasdaq_data_filtered.csv',
         'output_path': 'nasdaq_alpha158_data.csv',
         'start_date': '2000-01-01',
         'end_date': '2023-12-31',
