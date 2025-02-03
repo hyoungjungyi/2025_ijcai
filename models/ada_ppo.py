@@ -2,23 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal, Categorical
-from models import Transformer,Informer,Reformer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer
+from models import Transformer, Informer, Reformer, Autoformer, Fedformer, Flowformer, Flashformer, itransformer, crossformer, deformableTST
 import os
-class TemporalAttention(nn.Module):
-    def __init__(self, d_model):
-        super(TemporalAttention, self).__init__()
-        self.trans = nn.Linear(d_model, d_model, bias=False)
-
-    def forward(self, z):
-        h = self.trans(z)  # [N, T, D]
-        query = h[:, -1, :].unsqueeze(-1)  # 마지막 시간 스텝을 query로 사용
-        lam = torch.matmul(h, query).squeeze(-1)  # [N, T]
-        lam = torch.softmax(lam, dim=1).unsqueeze(1)  # 어텐션 가중치
-        output = torch.matmul(lam, z).squeeze(1)  # [N, D]
-        return output
 
 class ADA_PPO(nn.Module):
-    def __init__(self, model_name, configs,setting, deterministic=False):
+    def __init__(self, model_name, configs, setting, deterministic=False):
         super(ADA_PPO, self).__init__()
         self.model_name = configs.model
         self.model_dict = {
@@ -28,27 +16,35 @@ class ADA_PPO(nn.Module):
             'Flowformer': Flowformer,
             'Flashformer': Flashformer,
             'Autoformer': Autoformer,
-            'FEDformer': Fedformer,
+            'Fedformer': Fedformer,
             'itransformer': itransformer,
-
+            'crossformer': crossformer,
+            'deformableTST': deformableTST
         }
         self.model = self.model_dict[model_name].Model(configs)
 
-        # 모델과 파라미터 초기화
+        # Transfer learning 관련 설정
         if configs.transfer:
             self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint.pth')))
             if configs.freeze:
                 for param in self.model.parameters():
                     param.requires_grad = False
-        self.d_model = configs.d_model
 
+        self.d_model = configs.d_model
         self.pred_len = configs.pred_len
         self.c_out = configs.c_out
         self.periods = configs.horizons
         self.num_periods = len(self.periods)
         self.deterministic = deterministic
 
-        # 각 거래 기간에 대한 Actor-Critic 레이어
+        # ---- 새롭게 추가된 Head들 ----
+        # Horizon 선택을 위한 head (거래 기간 선택)
+        self.horizon_head = nn.Linear(self.pred_len, self.num_periods,bias=True)
+        # 포트폴리오 할당을 위한 분리된 표현을 산출하는 head
+        self.portfolio_head = nn.Linear(self.pred_len, self.pred_len,bias=True)
+        # ------------------------------
+
+        # 각 거래 기간별 포트폴리오 할당을 위한 Actor-Critic 레이어들
         self.layer_mu = nn.ModuleList([
             nn.Linear(self.pred_len, 1) for _ in self.periods
         ])
@@ -62,84 +58,65 @@ class ADA_PPO(nn.Module):
                 nn.Linear(128, 1)
             ) for _ in self.periods
         ])
-
+        # 포트폴리오 예측을 위한 head (필요에 따라 사용)
         self.layer_pred = nn.Linear(self.pred_len, 1)
-        # 거래 기간 선택을 위한 선택 레이어
-        self.selection_layer = nn.Linear(self.pred_len, self.num_periods)
 
     def pi(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
-        # 모델을 통한 순전파
-        pred_scores = self.model(x_enc, x_mark_enc, x_dec, x_mark_dec)  # [N, P] 종목마다 p일치를 예측한거야
+        # Transformer 기반 백본으로부터 예측 결과 산출
+        pred_scores = self.model(x_enc, x_mark_enc, x_dec, x_mark_dec)  # shape: [N, pred_len]
 
-        N = pred_scores.shape[0]
-
-        # 선택 로짓과 확률
-        selection_logits = self.selection_layer(pred_scores)  # [N, num_periods]
-        selection_probs = F.softmax(selection_logits, dim=1)  # [N, num_periods]
+        # --- Horizon 선택을 위한 분리된 처리 ---
+        # Horizon 선택 head를 통해 거래 기간 선택 로짓 산출
+        horizon_logits = self.horizon_head(pred_scores)  # shape: [N, num_periods]
+        selection_probs = F.softmax(horizon_logits, dim=1)
         selection_dist = Categorical(selection_probs)
         selection_entropy = selection_dist.entropy()
 
-
         if (not self.training) or self.deterministic:
-            # 그리디 선택: 가장 높은 확률을 가진 거래 기간 선택
+            # 평가 시 (deterministic): 가장 높은 확률을 가진 거래 기간 선택
             selected_period_indices = torch.argmax(selection_probs, dim=1)  # [N]
         else:
-            # 샘플링: 확률 분포에서 거래 기간 샘플링
+            # 학습 시: 확률 분포에서 샘플링
             selected_period_indices = selection_dist.sample()  # [N]
 
+        # --- 포트폴리오 할당을 위한 분리된 처리 ---
+        # 포트폴리오 할당 head를 통해 별도의 표현 산출
+        portfolio_repr = self.portfolio_head(pred_scores)  # shape: [N, pred_len]
 
-
-        # 3) horizon별로 action을 구하기 위한 변수
-        actions = torch.zeros(N, device=pred_scores.device)  # [N]
+        N = pred_scores.shape[0]
+        actions = torch.zeros(N, device=pred_scores.device)  # 최종 action을 저장할 변수
         final_log_prob = torch.zeros(N, device=pred_scores.device)
         action_entropy_buff = torch.zeros(N, device=pred_scores.device)
 
-        # horizon 선택의 log_prob
+        # Horizon 선택의 log_prob 계산
         selection_log_prob = selection_dist.log_prob(selected_period_indices)
 
+        # 각 horizon 별로 포트폴리오 할당 분포 계산
         for i, period in enumerate(self.periods):
-            mask = (selected_period_indices == i)  # [N], True/False
+            mask = (selected_period_indices == i)  # [N] boolean mask
             M = mask.sum()
             if M == 0:
                 continue
-
-            # 해당 horizon(i)을 선택한 샘플만 골라옴
-            # selected_pred_scores = shape [M, period]
-            # 여기서는 "마지막 period개"를 뽑는다고 가정(e.g. [-5:] -> 15~19)
-            selected_pred_scores = pred_scores[mask, :period]
-
-            # layer_mu[i], layer_std[i]는 in_features=self.pred_len이므로,
-            # pad해서 [M, pred_len]으로 맞춤
-            # pad: (left, right) => period -> self.pred_len
-            pad_len = self.pred_len - period  # how many columns to add on the left
-            # F.pad(input, pad=(left, right), ...)
-            selected_pred_scores_pad = F.pad(selected_pred_scores, (0, pad_len), "constant", 0)
-            # now shape=[M, self.pred_len]
-
-            mu = self.layer_mu[i](selected_pred_scores_pad).squeeze(-1)  # [M]
-            std = torch.clamp(F.softplus(self.layer_std[i](selected_pred_scores_pad)), min=1e-2).squeeze(-1)  # [M]
+            # portfolio_repr에서 해당하는 샘플만 선택하여 사용
+            selected_portfolio_repr = portfolio_repr[mask, :]
+            mu = self.layer_mu[i](selected_portfolio_repr).squeeze(-1)  # [M]
+            std = torch.clamp(F.softplus(self.layer_std[i](selected_portfolio_repr)), min=1e-2).squeeze(-1)  # [M]
 
             dist = Normal(mu, std)
             if (not self.training) or self.deterministic:
-                # 평가 시(deterministic) -> action = tanh(mu)
+                # 평가 시: action = tanh(mu)
                 action = torch.tanh(mu).squeeze(-1)
                 real_log_prob = torch.zeros_like(action)
                 action_entropy = torch.zeros_like(action)
             else:
-                # 확률적
-
-                action_sample = dist.rsample()  # [M]
+                # 학습 시: 샘플링 및 로그 보정 적용
+                action_sample = dist.rsample()  # reparameterization trick
                 action = torch.tanh(action_sample)  # [M]
-
-                log_prob = dist.log_prob(action_sample)  # [M]
-                # tanh에 대한 log_prob 보정
-                log_prob_tanh_correction = -torch.log(
-                    torch.clamp(1 - action.pow(2), min=1e-5)
-                )
+                log_prob = dist.log_prob(action_sample)
+                log_prob_tanh_correction = -torch.log(torch.clamp(1 - action.pow(2), min=1e-5))
                 real_log_prob = log_prob + log_prob_tanh_correction
                 action_entropy = dist.entropy()
 
-            # actions, log_probs_tensor에 할당
             actions[mask] = action
             action_entropy_buff[mask] = action_entropy
             final_log_prob[mask] = selection_log_prob[mask] + real_log_prob
@@ -151,43 +128,32 @@ class ADA_PPO(nn.Module):
         final_idx = tie_indices.min()
         total_entropy = (selection_entropy + action_entropy_buff).mean()
         total_log_prob = final_log_prob.sum()
+        # 추가: 선택된 horizon 중 다수결 등 후처리(필요 시) 적용 가능
 
         return actions, total_log_prob, total_entropy, final_idx
 
     def value(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
+        # 동일하게 백본에서 예측 결과 산출
+        pred_scores = self.model(x_enc, x_mark_enc, x_dec, x_mark_dec)  # shape: [N, pred_len]
+        # 포트폴리오 할당 head를 통해 표현 분리
+        portfolio_repr = self.portfolio_head(pred_scores)  # shape: [N, pred_len]
 
-        # pred_scores = self.model(x_enc, x_mark_enc, x_dec, x_mark_dec)  # [N, pred_len]
-        # value = self.layer_value_1(pred_scores)
-        # value_portfolio= self.layer_value_2(value).mean(dim=0)
+        # Horizon 선택은 horizon_head를 통해 진행
+        horizon_logits = self.horizon_head(pred_scores)
+        selection_probs = F.softmax(horizon_logits, dim=1)  # [N, num_periods]
 
-        pred_scores = self.model(x_enc, x_mark_enc, x_dec, x_mark_dec)  # [N, pred_len]
-        N = pred_scores.shape[0]
-
-        # 1) 현재 state에서 horizon 선택 확률
-        selection_logits = self.selection_layer(pred_scores)  # [N, num_periods]
-        selection_probs = F.softmax(selection_logits, dim=1)  # [N, num_periods]
-
-        # 2) 각 horizon별 value_i를 구한 뒤, selection_probs로 가중합
+        # 각 horizon 별로 value를 산출한 후, 가중합
         value_list = []
         for i, period in enumerate(self.periods):
-            sub_scores = pred_scores[:, :period]
-            pad_len = self.pred_len - period
-            sub_scores_pad = F.pad(sub_scores, (0, pad_len), "constant", 0)  # [N, pred_len]
-
-            value_i = self.layer_value[i](sub_scores_pad).squeeze(-1)  # [N]
+            value_i = self.layer_value[i](portfolio_repr).squeeze(-1)  # [N]
             value_list.append(value_i)
-
-        # [N, num_periods]
-        values_all = torch.stack(value_list, dim=1)
-
-        # 가중합 -> shape: [N]
-        # PPO의 Critic은 "현재 상태 s에서의 V^\pi(s)"를 추정하므로
-        # horizon i가 선택될 확률 * 그 i일 때의 가치 -> 합
+        values_all = torch.stack(value_list, dim=1)  # [N, num_periods]
         value_portfolio = (selection_probs * values_all).sum(dim=1)  # [N]
-
-        return value_portfolio.mean(dim=0).squeeze() # [1]
+        return value_portfolio.mean(dim=0).squeeze()  # 스칼라 반환
 
     def pred(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
+        # 포트폴리오 할당 head를 통해 최종 예측 산출
         pred_scores = self.model(x_enc, x_mark_enc, x_dec, x_mark_dec)
-        pred_return = self.layer_pred(pred_scores).squeeze(-1)
+        portfolio_repr = self.portfolio_head(pred_scores)
+        pred_return = self.layer_pred(portfolio_repr).squeeze(-1)
         return pred_return

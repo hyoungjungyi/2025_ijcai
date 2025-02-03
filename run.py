@@ -30,7 +30,7 @@ def main():
 
 
     parser.add_argument('--seed', type=int, help='random seed')
-    parser.add_argument('--model',type=str,default='itransformer',help='options = [Transformer,Reformer,Informer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer]')
+    parser.add_argument('--model',type=str,default='Fedformer',help='options = [Transformer,Reformer,Informer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer,crossformer,deformer,deformableTST]')
     parser.add_argument('--is_training', type=int, default=1, help='status')
     parser.add_argument('--train_method',type= str,default='Reinforce',help='options = [Reinforce, Supervise]')
     parser.add_argument('--moe_train', action='store_true', help='Enable MOE training after expert training',default=True)
@@ -54,7 +54,7 @@ def main():
     parser.add_argument('--test_year', type=int, default=2021, help='select test period') #2021
     parser.add_argument('--seq_len', type=int, default=20, help='input sequence length')  # 12
     parser.add_argument('--label_len', type=int, default=5, help='start token length')  # 5
-    parser.add_argument('--pred_len', type=int, default=20, help='prediction sequence length')  # 1,5,20
+    parser.add_argument('--pred_len', type=int, default=20, help='prediction sequence length')  # 1,5,20 #reinforce는 1로 고정
     parser.add_argument('--freq', type=str, default='d',
                         help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, '  # d
                              'b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h')
@@ -66,8 +66,8 @@ def main():
     parser.add_argument('--enc_in', type=int, help='encoder input size (auto-detected from data)', required=False)
     parser.add_argument('--dec_in', type=int, help='decoder input size (auto-detected from data)', required=False)
     parser.add_argument('--c_out', type=int, default=1, help='output size')  # 26
-    parser.add_argument('--mode_select', type=str, default='random',help='for FEDformer, there are two mode selection method, options: [random, low]')
-    parser.add_argument('--modes', type=int, default=64, help='modes to be selected random 64')
+    parser.add_argument('--mode_select', type=str, default='low',help='for FEDformer, there are two mode selection method, options: [random, low]')
+    parser.add_argument('--modes', type=int, default=9, help='modes to be selected random 64')
     parser.add_argument('--moving_avg', default=[24], help='window size of moving average')
     parser.add_argument('--d_model', type=int, default=512, help='dimension of model')
     parser.add_argument('--n_heads', type=int, default=8, help='num of heads')
@@ -79,9 +79,54 @@ def main():
     parser.add_argument('--factor', type=int, default=1, help='attn factor')
     parser.add_argument('--embed', type=str, default='timeF', help='time features encoding, options:[timeF, fixed, learned]')
     parser.add_argument('--activation', type=str, default='gelu', help='activation')
-    # parser.add_argument('--batch_size', type=int, default=32, help='batch size of train input data')
-    # parser.add_argument('--features', type=str, default='M', help='forecasting task, options:[M, S, MS]; M:multivariate predict multivariate,S:univariate predict univariate, MS:multivariate predict univariate')
-    # parser.add_argument('--target', type=str, default='close', help='target feature in S or MS task')  # Adj Close,'OT'
+    ##DeformableTST parameters
+    parser.add_argument('--revin', type=int, default=1, help='use RevIN; True 1 False 0')
+    parser.add_argument('--revin_affine', type=int, default=0, help='use RevIN-affine; True 1 False 0')
+    parser.add_argument('--revin_subtract_last', type=int, default=0,
+                        help='0: subtract mean; 1: subtract the last value')
+    parser.add_argument('--stem_ratio', type=int, default=3, help='down sampling ratio in stem layer')
+    parser.add_argument('--down_ratio', type=int, default=2,
+                        help='down sampling ratio in DownSampling layer between two stages')
+    parser.add_argument('--fmap_size', type=int, default=768, help='feature series length')
+    parser.add_argument('--dims', nargs='+', type=int, default=[64, 128, 256, 512], help='dims for each stage')
+    parser.add_argument('--depths', nargs='+', type=int, default=[1, 1, 3, 1],
+                        help='number of Transformer blocks for each stage')
+    parser.add_argument('--drop_path_rate', type=float, default=0.3, help='drop path rate')
+    parser.add_argument('--layer_scale_value', nargs='+', type=float, default=[-1, -1, -1, -1],
+                        help='layer_scale_init_value')
+    parser.add_argument('--use_pe', nargs='+', type=int, default=[1, 1, 1, 1], help='use pe; True 1 False 0')
+    parser.add_argument('--use_lpu', nargs='+', type=int, default=[1, 1, 1, 1],
+                        help='use Local Perception Unit; True 1 False 0')
+    parser.add_argument('--local_kernel_size', nargs='+', type=int, default=[3, 3, 3, 3], help='kernel size for LPU')
+    parser.add_argument('--expansion', type=int, default=4, help='ffn ratio')
+    parser.add_argument('--drop', type=float, default=0.0, help='dropout prob for FFN module')
+    parser.add_argument('--use_dwc_mlp', nargs='+', type=int, default=[1, 1, 1, 1],
+                        help='use FFN with a DWConv; True 1 False 0')
+    parser.add_argument('--heads', nargs='+', type=int, default=[4, 8, 16, 32], help='number of heads')
+    parser.add_argument('--attn_drop', type=float, default=0.0,
+                        help='dropout prob for attention map in attention module')
+    parser.add_argument('--proj_drop', type=float, default=0.0, help='dropout prob for proj in attention module')
+    parser.add_argument('--stage_spec', nargs='+', type=list, default=[['D'], ['D'], ['D', 'D', 'D'], ['D']],
+                        help='type of blocks in each stage')
+    parser.add_argument('--window_size', nargs='+', type=int, default=[3, 3, 3, 3],
+                        help='kernel size for window attention')
+    parser.add_argument('--nat_ksize', nargs='+', type=int, default=[3, 3, 3, 3],
+                        help='kernel size for neighborhood attention')
+    parser.add_argument('--ksize', nargs='+', type=int, default=[9, 7, 5, 3], help='kernel size for offset sub-network')
+    parser.add_argument('--stride', nargs='+', type=int, default=[8, 4, 2, 1], help='stride for offset sub-network')
+    parser.add_argument('--n_groups', nargs='+', type=int, default=[2, 4, 8, 16], help='number of offset groups')
+    parser.add_argument('--offset_range_factor', nargs='+', type=float, default=[-1, -1, -1, -1],
+                        help='restrict the offset value in a small range')
+    parser.add_argument('--no_off', nargs='+', type=int, default=[0, 0, 0, 0], help='not use offset; True 1 False 0')
+    parser.add_argument('--dwc_pe', nargs='+', type=int, default=[0, 0, 0, 0], help='use DWC-pe; True 1 False 0')
+    parser.add_argument('--fixed_pe', nargs='+', type=int, default=[0, 0, 0, 0], help='use fixed pe; True 1 False 0')
+    parser.add_argument('--log_cpb', nargs='+', type=int, default=[0, 0, 0, 0],
+                        help='use pe of SWin-v2; True 1 False 0')
+    parser.add_argument('--head_dropout', type=float, default=0.1, help='dropout prob for the head')
+    parser.add_argument('--head_type', type=str, default='Flatten', help='Flatten')
+    parser.add_argument('--use_head_norm', type=int, default=1, help='use final LN layer; True 1 False 0')
+
+
     #optimization
     parser.add_argument('--num_workers', type=int, default=1, help='data loader num workers')
     parser.add_argument('--itr', type=int, default=1, help='experiments times')

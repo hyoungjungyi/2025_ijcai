@@ -408,7 +408,12 @@ class Exp_Reinforce(Exp_Basic):
             train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_data, vali_loader, criterion)
             test_loss = self.vali(test_data, test_loader, criterion)
-
+            self.wandb.log({
+                "Train Loss": train_loss,
+                "Validation Loss": vali_loss,
+                "Test Loss": test_loss,
+                "Epoch": epoch
+            })
             self.logger.info(
                 "Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                     epoch + 1, train_steps, train_loss, vali_loss, test_loss))
@@ -504,7 +509,7 @@ class Exp_Reinforce(Exp_Basic):
 
 
         # Run backtest and save results
-        run_backtest(
+        metrics = run_backtest(
             data=raw_data,
             index_data=index_data,
             start_date=start_date,
@@ -516,7 +521,15 @@ class Exp_Reinforce(Exp_Basic):
             total_periods=len(dataset.unique_dates),
             folder_path=folder_path
         )
+        strategy_columns = ["External Portfolio"]
+        log_data = {}  # 한 번에 모아서 로깅
+        for i, metric_name in enumerate(metrics["Metric"]):
+            for strategy in strategy_columns:
+                value = metrics[strategy][i]
+                log_data[f"test/{strategy}/{metric_name}"] = value
 
+        # 위에서 모은 데이터를 한 번에 로깅
+        self.wandb.log(log_data)
         self.logger.info("Backtest completed. Portfolio values and metrics saved.")
 
     def predict(self, setting, load=False):

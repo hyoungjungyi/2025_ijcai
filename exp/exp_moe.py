@@ -49,6 +49,7 @@ class Exp_MOE(Exp_Basic):
         self.temperature = self.args.temperature
         self.env = tradingenv.TradingEnvironment(self.args)
         self.buffer_size = 1  #20
+        self.ent_coef = 0.01
         self.gamma =0.99
         self.lmbda = 0.95
         self.eps_clip = 0.1
@@ -151,7 +152,7 @@ class Exp_MOE(Exp_Basic):
                 if len(self.env.rollout) >= self.env.rollout_len:
                     self.put_data(self.env.rollout)
                     self.env.rollout = []
-                    loss_val = self.train_net(K_epoch=3, model_optim=model_optim)
+                    loss_val = self.train_net(K_epoch=1, model_optim=model_optim)
                     if loss_val is not None:
                         epoch_loss.append(loss_val)
             vali_loss, test_loss = self.vali()
@@ -324,7 +325,8 @@ class Exp_MOE(Exp_Basic):
             total_periods=len(backtest_dataset.unique_dates),  # 혹은 다른 값
             folder_path=folder_path
         )
-        strategy_columns = [col for col in metrics.keys() if col != "Metric"]
+        # strategy_columns = [col for col in metrics.keys() if col != "Metric"]
+        strategy_columns = ["External Portfolio"]
         log_data = {}  # 한 번에 모아서 로깅
         for i, metric_name in enumerate(metrics["Metric"]):
             for strategy in strategy_columns:
@@ -426,6 +428,12 @@ class Exp_MOE(Exp_Basic):
             running_adv = self.gamma * self.lmbda * running_adv + delta_t
             advantage_lst.append(running_adv)
         advantage_lst.reverse()
+
+        advantage_tensor = torch.tensor(advantage_lst, dtype=torch.float, device=self.device)
+        advantage_mean = advantage_tensor.mean()
+        advantage_std = advantage_tensor.std() + 1e-8
+        advantage_tensor = (advantage_tensor - advantage_mean) / advantage_std
+
         for i, transition in enumerate(data):
             (batch_x, batch_y, batch_x_mark, batch_y_mark,
              scores, reward,
@@ -434,14 +442,14 @@ class Exp_MOE(Exp_Basic):
 
             # td_target도 텐서로
             td_target_tensor = torch.tensor(td_target_lst[i], dtype=torch.float, device=self.device)
-            advantage_tensor = torch.tensor(advantage_lst[i], dtype=torch.float, device=self.device)
+            adv_val = advantage_tensor[i]
 
             data_with_adv.append((
                 batch_x, batch_y, batch_x_mark, batch_y_mark,
                 scores, reward,
                 next_batch_x, next_batch_y, next_batch_x_mark_, next_batch_y_mark_,
                 done_mask, old_log_prob,
-                td_target_tensor, advantage_tensor,
+                td_target_tensor, adv_val,
                 return_data
             ))
 
@@ -457,18 +465,18 @@ class Exp_MOE(Exp_Basic):
                 for mini_batch in data:
                     batch_x, batch_y, batch_x_mark, batch_y_mark, scores, reward, next_batch_x, next_batch_y, next_batch_x_mark, next_batch_y_mark, done_mask, old_log_prob, td_target, advantage, return_data = mini_batch
 
-                    scores, log_prob,_,_ = self.model.pi(batch_x, batch_x_mark, batch_y, batch_y_mark)
+                    scores, log_prob,total_entropy,_ = self.model.pi(batch_x, batch_x_mark, batch_y, batch_y_mark)
 
                     ratio = torch.exp(torch.clamp(log_prob - old_log_prob, min=self.min_clip, max=self.max_clip))
                     # ratio = torch.exp(log_prob - old_log_prob)  # a/b == exp(log(a)-log(b))
-
+                    entropy_mean = total_entropy
                     surr1 = ratio * advantage
                     surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantage
                     pred_loss = F.smooth_l1_loss(self.model.pred(batch_x, batch_x_mark, batch_y, batch_y_mark),return_data)
                     policy_loss = -torch.min(surr1, surr2)
                     value_loss = F.smooth_l1_loss(self.model.value(batch_x, batch_x_mark, batch_y, batch_y_mark), td_target)
                     # self.logger.info(f"ratio:{ratio},[train_net_loss] pred_loss :{pred_loss.item():.4f} policy_loss :{policy_loss.item():.4f} value_loss :{value_loss.item():.4f}")
-                    loss = self.beta * pred_loss + policy_loss + value_loss
+                    loss = self.beta * pred_loss + policy_loss + value_loss - self.ent_coef * entropy_mean
                     # self.logger.info(f"[train_net_loss] total_loss :{loss.item():.4f}")
                     losses += loss.mean().item()
                     model_optim.zero_grad()

@@ -53,7 +53,7 @@ class FourierBlock(nn.Module):
         # Compute Fourier coefficients
         x_ft = torch.fft.rfft(x, dim=-1)
         # Perform Fourier neural operations
-        out_ft = torch.zeros(B, H, E, L // 2 , device=x.device, dtype=torch.cfloat)
+        out_ft = torch.zeros(B, H, E, L // 2 + 1 , device=x.device, dtype=torch.cfloat)
         for wi, i in enumerate(self.index):
             out_ft[:, :, :, wi] = self.compl_mul1d(x_ft[:, :, :, i], self.weights1[:, :, :, wi])
         # Return to time domain

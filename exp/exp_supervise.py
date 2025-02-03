@@ -577,7 +577,7 @@ class Exp_Supervise(Exp_Basic):
 
         index_data = fetch_index_data(index_name, start_date, end_date)
 
-        run_backtest(
+        metrics = run_backtest(
             data=back_test_data,  # Your dataset as DataFrame
             index_data=index_data,  # Index data (e.g., DJI)
             start_date=start_date,

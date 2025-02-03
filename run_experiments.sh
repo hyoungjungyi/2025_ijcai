@@ -2,7 +2,7 @@
 
 markets=("dj30" "nasdaq" "kospi" "csi300")
 data_options=("alpha158")
-model=('Transformer' 'Informer' 'Reformer' 'Autoformer' 'Flashformer' 'itransformer')
+model=('Transformer' 'Informer' 'Reformer' 'Autoformer' 'Flashformer' 'itransformer' 'Fedformer' 'crossformer')
 lr=(0.00001 0.00005)
 gpu_cores=(0 1 2 3 4 5 6 7)
 memory_threshold=5000  # 최소 필요 메모리 (MB)
