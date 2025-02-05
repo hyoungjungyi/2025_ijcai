@@ -433,7 +433,7 @@ class TimeSeriesDataset(Dataset):
         df_raw = pd.read_csv(os.path.join(self.root_path, self.data_path))
         df_raw.fillna(0, inplace=True)
         # df_raw['date'] = pd.to_datetime(df_raw['date']).dt.date
-        df_raw['date'] = pd.to_datetime(df_raw['date'])  # .dt.date
+        df_raw['date'] =pd.to_datetime(df_raw['date']).dt.tz_localize(None)
         df_raw = df_raw.set_index(['date', 'tic']).sort_index()
         #
         # # Split data by year
@@ -582,8 +582,10 @@ class TimeSeriesDataset(Dataset):
                 (self.df.index.get_level_values('date') < label_end_date)
         )
         seq_y = self.df[label_mask].groupby(level='date').apply(lambda x: x.values)
-        seq_y = np.stack(seq_y, axis=1)  # [num_tics, label_len+pred_len, num_features]
-
+        try:
+            seq_y = np.stack(seq_y, axis=1)  # [num_tics, label_len+pred_len, num_features]
+        except:
+            print()
         # time encodings for seq_y
         label_stamp_mask = (
                 (self.unique_dates >= label_start_date) &

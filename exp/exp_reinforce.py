@@ -193,7 +193,11 @@ class Exp_Reinforce(Exp_Basic):
                     surr1 = ratio * advantage
                     surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantage
                     pred_loss = F.smooth_l1_loss(self.model.pred(batch_x, batch_x_mark,batch_y, batch_y_mark), return_data)
-                    loss = -torch.min(surr1, surr2) + F.smooth_l1_loss(self.model.value(batch_x, batch_x_mark, batch_y, batch_y_mark), td_target) + pred_loss
+                    policy_loss = -torch.min(surr1, surr2)
+                    value_loss = F.smooth_l1_loss(self.model.value(batch_x, batch_x_mark, batch_y, batch_y_mark), td_target)
+                    loss = policy_loss + value_loss + pred_loss
+                    # self.logger.info(
+                    #     f"ratio:{ratio},[train_net_loss] pred_loss :{pred_loss.item():.4f} policy_loss :{policy_loss.item():.4f} value_loss :{value_loss.item():.4f}")
                     losses += loss.mean().item()
                     model_optim.zero_grad()
                     loss.mean().backward()
@@ -396,7 +400,7 @@ class Exp_Reinforce(Exp_Basic):
                     if len(self.env.rollout) == self.env.rollout_len:
                         self.put_data(self.env.rollout)
                         self.env.rollout = []
-                        loss = self.train_net(K_epoch=3, model_optim=model_optim)
+                        loss = self.train_net(K_epoch=1, model_optim=model_optim)
                         train_loss.append(loss)
 
                     prev_batch = current_batch
@@ -500,7 +504,7 @@ class Exp_Reinforce(Exp_Basic):
 
         csv_path = os.path.join(self.args.root_path, self.args.data_path)
         raw_data = pd.read_csv(csv_path)
-        raw_data['date'] = pd.to_datetime(raw_data['date'])
+        raw_data['date'] = pd.to_datetime(raw_data['date']).dt.tz_localize(None)
         index_name = self._get_market_index_name()
         index_data = fetch_index_data(index_name, start_date, end_date)
         folder_path = os.path.join('./results', setting)
@@ -939,7 +943,8 @@ class Exp_Reinforce(Exp_Basic):
             'dj30': '^DJI',
             'sp500': '^GSPC',
             'nasdaq': '^IXIC',
-            'csi300': '000300.SS'
+            'csi300': '000300.SS',
+            'ftse': '^FTSE',
         }
         index_name = market_indices.get(self.args.market)
         if not index_name:

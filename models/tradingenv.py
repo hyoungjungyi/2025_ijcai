@@ -179,7 +179,7 @@ class TradingEnvironment:
         self.weights_memory = []
         self.transaction_cost_memory = []
         self.rollout =[]
-        self.rollout_len = 20
+        self.rollout_len = 30
 
 
 

@@ -1,13 +1,13 @@
 #!/bin/bash
 
-markets=("dj30" "nasdaq" "kospi" "csi300")
-data_options=("alpha158")
+markets=( "ftse" "nasdaq" "kospi" "csi300" "dj30")
+data_options=("general")
 model=('Transformer' 'Informer' 'Reformer' 'Autoformer' 'Flashformer' 'itransformer' 'Fedformer' 'crossformer')
-lr=(0.00001 0.00005)
+lr=(0.00001 )
 gpu_cores=(0 1 2 3 4 5 6 7)
 memory_threshold=5000  # 최소 필요 메모리 (MB)
 check_interval=60      # GPU 체크 주기 (초)
-max_jobs_per_gpu=2     # GPU당 동시에 실행 가능한 최대 실험 개수
+max_jobs_per_gpu=1    # GPU당 동시에 실행 가능한 최대 실험 개수
 
 # GPU 메모리 확인 함수
 check_gpu_memory() {
@@ -73,7 +73,7 @@ clean_finished_jobs() {
 }
 
 var=0
-for experiment_count in {1..4}; do
+for experiment_count in {1..2}; do
     for market in "${markets[@]}"; do
         for model in "${model[@]}"; do
             for lr_val in "${lr[@]}"; do

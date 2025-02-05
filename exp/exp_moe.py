@@ -42,7 +42,6 @@ class Exp_MOE(Exp_Basic):
         super(Exp_MOE, self).__init__(args,setting)
         self.setting = setting
         self.old_model = ada_ppo.ADA_PPO(args.model, args, setting, deterministic=False).to(self.device)
-        self.old_model.eval()
         for param in self.old_model.parameters():
             param.requires_grad = False
         self.horizons = args.horizons
@@ -55,8 +54,8 @@ class Exp_MOE(Exp_Basic):
         self.eps_clip = 0.1
         self.beta = 0.1
         self.data = []
-        self.max_clip = 10  # 적절한 범위 설정 (예: 10은 exp(10) = 22026 정도)
-        self.min_clip = -10  # exp(-10) ≈ 0
+        self.max_clip = 5  # 적절한 범위 설정 (예: 10은 exp(10) = 22026 정도)
+        self.min_clip = -5  # exp(-10) ≈ 0
 
 
     def _build_model(self):
@@ -101,7 +100,6 @@ class Exp_MOE(Exp_Basic):
         for epoch in range(self.args.train_epochs):
             self.logger.info(f"[Train] Epoch {epoch + 1}/{self.args.train_epochs}")
             self.model.train()
-            self.old_model.load_state_dict(self.model.state_dict())
             self.env.reset()
 
             i = 0
@@ -122,7 +120,20 @@ class Exp_MOE(Exp_Basic):
                 final_weights = torch.zeros_like(scores)
                 final_weights[top_indices]  = topk_weights
                 returns = ground_true[:, selected_period_indices]
+
+                ####
+                simulated_returns = torch.tensor(
+                    [(final_weights*ground_true[:,i]).sum() for i in range(len(self.horizons))],
+                    device=ground_true.device
+                )
+                optimal_horizon_index = torch.argmax(simulated_returns)
+                bonus_ratio = 0.2
                 reward = self.env.step(final_weights,returns)
+                if optimal_horizon_index.item() == selected_period_indices.item():
+                    reward *= (1 + bonus_ratio)
+                else:
+                    reward *= (1 - bonus_ratio)
+
                 chosen_horizon =self.horizons[selected_period_indices]
                 next_i = i+chosen_horizon
                 done = (next_i >= n_data - 1)
@@ -153,11 +164,13 @@ class Exp_MOE(Exp_Basic):
                     self.put_data(self.env.rollout)
                     self.env.rollout = []
                     loss_val = self.train_net(K_epoch=1, model_optim=model_optim)
+                    self.old_model.load_state_dict(self.model.state_dict())
                     if loss_val is not None:
                         epoch_loss.append(loss_val)
+                    torch.cuda.empty_cache()
             vali_loss, test_loss = self.vali()
             avg_train_loss = np.mean(epoch_loss) if epoch_loss else 0.0
-
+            torch.cuda.empty_cache()
             self.logger.info(
                 f"[Epoch {epoch + 1}] TrainLoss={avg_train_loss:.4f}, "
                 f"ValiLoss={vali_loss:.4f}, TestLoss={test_loss:.4f}"
@@ -307,7 +320,7 @@ class Exp_MOE(Exp_Basic):
 
         csv_path = os.path.join(self.args.root_path, self.args.data_path)
         raw_data = pd.read_csv(csv_path)
-        raw_data['date'] = pd.to_datetime(raw_data['date'])
+        raw_data['date'] = pd.to_datetime(raw_data['date']).dt.tz_localize(None)
         index_name = self._get_market_index_name()
         index_data = fetch_index_data(index_name, start_date, end_date)
         folder_path = os.path.join('./results', setting)
@@ -466,21 +479,24 @@ class Exp_MOE(Exp_Basic):
                     batch_x, batch_y, batch_x_mark, batch_y_mark, scores, reward, next_batch_x, next_batch_y, next_batch_x_mark, next_batch_y_mark, done_mask, old_log_prob, td_target, advantage, return_data = mini_batch
 
                     scores, log_prob,total_entropy,_ = self.model.pi(batch_x, batch_x_mark, batch_y, batch_y_mark)
+                    #####
 
                     ratio = torch.exp(torch.clamp(log_prob - old_log_prob, min=self.min_clip, max=self.max_clip))
-                    # ratio = torch.exp(log_prob - old_log_prob)  # a/b == exp(log(a)-log(b))
-                    entropy_mean = total_entropy
                     surr1 = ratio * advantage
                     surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantage
+
+                    entropy_mean = total_entropy
                     pred_loss = F.smooth_l1_loss(self.model.pred(batch_x, batch_x_mark, batch_y, batch_y_mark),return_data)
                     policy_loss = -torch.min(surr1, surr2)
                     value_loss = F.smooth_l1_loss(self.model.value(batch_x, batch_x_mark, batch_y, batch_y_mark), td_target)
                     # self.logger.info(f"ratio:{ratio},[train_net_loss] pred_loss :{pred_loss.item():.4f} policy_loss :{policy_loss.item():.4f} value_loss :{value_loss.item():.4f}")
                     loss = self.beta * pred_loss + policy_loss + value_loss - self.ent_coef * entropy_mean
+                    # loss = policy_loss + value_loss - self.ent_coef * entropy_mean
                     # self.logger.info(f"[train_net_loss] total_loss :{loss.item():.4f}")
                     losses += loss.mean().item()
                     model_optim.zero_grad()
                     loss.mean().backward()
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     model_optim.step()
             return losses
 
@@ -491,7 +507,8 @@ class Exp_MOE(Exp_Basic):
             'dj30': '^DJI',
             'sp500': '^GSPC',
             'nasdaq': '^IXIC',
-            'csi300': '000300.SS'
+            'csi300': '000300.SS',
+            'ftse': '^FTSE',
         }
         index_name = market_indices.get(self.args.market)
         if not index_name:

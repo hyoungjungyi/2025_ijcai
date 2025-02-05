@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch import optim
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
-from models import Transformer,moe,ppo,tradingenv,Informer,Reformer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer
+from models import Transformer,moe,ppo,tradingenv,Informer,Reformer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer,crossformer
 from utils.tools import EarlyStopping, adjust_learning_rate, visual,port_visual
 from utils.metrics import metric
 from utils.backtest import *
@@ -50,10 +50,19 @@ class Exp_Supervise(Exp_Basic):
         #     'iFlashformer': iFlashformer,
         #
         # }
-        model_dict = {
+        self.model_dict = {
             'Transformer': Transformer,
+            'Informer': Informer,
+            'Reformer': Reformer,
+            'Flowformer': Flowformer,
+            'Flashformer': Flashformer,
+            'Autoformer': Autoformer,
+            'Fedformer': Fedformer,
+            'itransformer': itransformer,
+            'crossformer': crossformer,
+
         }
-        model = model_dict[self.args.model].Model(self.args).float()
+        model = self.model_dict[self.args.model].Model(self.args).float()
 
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)

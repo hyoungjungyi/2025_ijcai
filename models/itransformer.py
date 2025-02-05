@@ -39,6 +39,8 @@ class Model(nn.Module):
             norm_layer=torch.nn.LayerNorm(configs.d_model)
         )
         self.projector = nn.Linear(configs.d_model, configs.pred_len, bias=True)
+
+        self.projector_ada = nn.Linear(configs.dec_in, configs.d_model, bias=True)
         self.Temporal = TemporalAttention(configs.dec_in)
         self.projection = nn.Linear(configs.dec_in, configs.c_out, bias=True)
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
@@ -75,8 +77,10 @@ class Model(nn.Module):
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
         if self.configs.moe_train:
-            dec_out = self.projection(dec_out[:, -self.pred_len:, :]).squeeze(-1)
+            dec_out = self.projector_ada(dec_out)
+            return dec_out
         else:
-            dec_out = self.Temporal(dec_out[:, -self.pred_len:, :])
-            dec_out = self.projection(dec_out)
+            dec_out = self.Temporal(dec_out)  # [B, out_len, d_model]
+            dec_out = self.projection(dec_out)  # [B, out_len, c_out]
+
         return dec_out

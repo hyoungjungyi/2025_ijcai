@@ -83,9 +83,10 @@ class Model(nn.Module):
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
         if self.configs.moe_train:
-            dec_out = self.projection(dec_out[:, -self.pred_len:, :]).squeeze(-1)
+            return dec_out
         else:
-            dec_out = self.Temporal(dec_out[:, :, :])
-            dec_out = self.projection(dec_out)
+            dec_out = self.Temporal(dec_out)  # [B, out_len, d_model]
+            dec_out = self.projection(dec_out)  # [B, out_len, c_out]
+
         return dec_out
 

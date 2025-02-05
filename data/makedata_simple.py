@@ -48,13 +48,33 @@ def fetch_market_data(market, index_ticker, tickers, start_date, end_date):
 
     raw_df = pd.read_csv(raw_csv_path)
     # 문자열 -> datetime 변환
-    raw_df['date'] = pd.to_datetime(raw_df['date'], errors='coerce')
+    raw_df['date'] = pd.to_datetime(raw_df['date'])
+
     # 날짜가 없는 행 제거
     raw_df.dropna(subset=['date'], inplace=True)
     raw_df.sort_values(by=['date', 'tic'], inplace=True)
 
     # Pivot (행=날짜, 열=tic, 값=adjclose)
     stock_data = raw_df.pivot(index='date', columns='tic', values='adjclose')
+    missing_mask = stock_data.isna()
+
+    # 2) NaN이 1개 이상 존재하는지 여부
+    if missing_mask.any().any():
+        # 3) NaN이 True인 위치만 추출 (MultiIndex 형식)
+        missing_positions = missing_mask.stack()
+        missing_positions = missing_positions[missing_positions]  # True인 셀만 남김
+
+        # 4) MultiIndex -> DataFrame으로 변환
+        #    (각 행에 date, tic 컬럼이 생기고 값은 bool(True) 형태)
+        missing_df = missing_positions.index.to_frame(index=False)
+        # 보통 첫 번째 컬럼이 date, 두 번째 컬럼이 tic이 됨
+        missing_df.columns = ['date', 'tic']
+
+        # 5) 실제 raw_df에 존재하지 않는 (date, tic) 조합 확인
+        print("=== Missing (date, tic) combinations ===")
+        print(missing_df.head(30))  # 상위 30개만 출력
+    else:
+        print("No NaN values in pivoted data (stock_data).")
     stock_data.index = stock_data.index.normalize()
     stock_data.index = stock_data.index.tz_localize(None)
     stock_data.index.name = 'date'
@@ -73,13 +93,10 @@ def fetch_market_data(market, index_ticker, tickers, start_date, end_date):
     # ----------------------------------------------------------------
     # 2-2) '연속으로 모든 종목의 값이 동일한' 행 식별 & 제거
     # ----------------------------------------------------------------
-    #  - eq(...).all(axis=1)는 현재 행과 바로 이전 행을 비교해, 모든 칼럼 동일하면 True
-    #  - 한 번 True가 되면, "바로 전날과 동일"한 날이므로 중복 제거
     consecutive_dup_mask = stock_data.eq(stock_data.shift(1)).all(axis=1)
     if consecutive_dup_mask.any():
         num_dup_days = consecutive_dup_mask.sum()
         print(f"[Stocks] 연속 중복 일자 수: {num_dup_days}")
-        # True인 날(연속 중복) 제거
         stock_data = stock_data[~consecutive_dup_mask]
 
     print(f"[After Remove Duplicates] stock_data.shape = {stock_data.shape}")
@@ -88,7 +105,7 @@ def fetch_market_data(market, index_ticker, tickers, start_date, end_date):
     for col in stock_data.columns:
         daily_diff = stock_data[col].diff().fillna(0)
         zero_diff_ratio = (daily_diff == 0).mean()
-        if zero_diff_ratio > 0.15:
+        if zero_diff_ratio > 0.1:
             print(f"[Stocks] {col} : {zero_diff_ratio*100:.1f}% 날짜가 전일과 동일.")
 
     # 3) 수익률 계산 (중복 제거 후)
@@ -108,7 +125,6 @@ def fetch_market_data(market, index_ticker, tickers, start_date, end_date):
     final_dates = stock_data.index.intersection(returns.index)
     stock_data = stock_data.loc[final_dates]
     returns = returns.loc[final_dates]
-    # 인덱스 데이터도 여기에 맞춰서
     index_data = index_data.loc[final_dates]
 
     # ----------------------------------------------------------------
@@ -122,6 +138,18 @@ def fetch_market_data(market, index_ticker, tickers, start_date, end_date):
     num_tickers = stock_data.shape[1]
     industry_classification = np.full((num_tickers, num_tickers), 1 / num_tickers)
 
+    # ----------------------------------------------------------------
+    # [추가] 최종 데이터 NaN 체크
+    # ----------------------------------------------------------------
+    print("\n=== Checking for NaN values in final DataFrames ===")
+    for df_name, df in zip(["Index Data", "Stock Data", "Returns"], [index_data, stock_data, returns]):
+        total_nan = df.isna().sum().sum()
+        if total_nan > 0:
+            print(f"[Warning] {df_name} contains {total_nan} NaN values.")
+        else:
+            print(f"{df_name} has no NaN values.")
+    print("===================================================")
+
     # 6) 결과 저장
     market_dir = f'./data/{market.upper()}'
     os.makedirs(market_dir, exist_ok=True)
@@ -131,7 +159,7 @@ def fetch_market_data(market, index_ticker, tickers, start_date, end_date):
 
     np.save(os.path.join(market_dir, 'stocks_data.npy'), stocks_data)
     np.save(os.path.join(market_dir, 'ror.npy'), returns_np)
-    stock_data.to_csv(os.path.join(market_dir, f'{market}_stocks.csv'))
+    stock_data.to_csv(os.path.join(market_dir, f'{market.upper()}_stocks.csv'))
     np.save(os.path.join(market_dir, 'industry_classification.npy'), industry_classification)
 
     print(f"\nData for {market.upper()} saved successfully.")
@@ -145,43 +173,14 @@ def fetch_market_data(market, index_ticker, tickers, start_date, end_date):
 # --------------------------
 # 예: 마켓 구성 정의
 # --------------------------
-
 market_configs = {
-
-
-'nasdaq': {
-    'index_ticker': '^IXIC',
-    'tickers_file': 'complete_nasdaq_tickers.csv',
-    'start_date': '2000-01-05',
-    'end_date': '2023-12-31'
-},
-'csi300': {
-    'index_ticker': '000300.SS',
-    'tickers_file': 'complete_csi300_tickers.csv',
-    'start_date': '2014-01-01',
-    'end_date': '2023-12-31'
-},
-
-
-
-'dj30': {
-        'index_ticker': '^DJI',
-        'tickers_file': 'complete_dj30_tickers.csv',
-        'start_date': '2000-01-01',
+    'ftse': {
+        'index_ticker': '^FTSE',
+        'tickers_file': 'complete_ftse_tickers.csv',
+        'start_date': '2000-01-05',
         'end_date': '2023-12-31'
     },
 }
-
-
-
-# market_configs = {
-#     'kospi': {
-#         'index_ticker': '^KS11',
-#         'tickers_file': 'complete_kospi_tickers.csv',
-#         'start_date': '2000-01-08',
-#         'end_date': '2023-12-31'
-#     },
-# }
 
 for market, config in market_configs.items():
     try:
@@ -210,20 +209,8 @@ for market, config in market_configs.items():
 
 
 
-
-
-
-
-
-#
 # market_configs = {
 #
-#     'kospi': {
-#         'index_ticker': '^KS11',
-#         'tickers_file': 'complete_kospi_tickers.csv',
-#         'start_date': '2000-01-08',
-#         'end_date': '2023-12-31'
-#     },
 #
 # 'nasdaq': {
 #     'index_ticker': '^IXIC',
@@ -232,7 +219,7 @@ for market, config in market_configs.items():
 #     'end_date': '2023-12-31'
 # },
 # 'csi300': {
-#     'index_ticker': '000300.SS',
+#     'index_ticker': '^DJI',
 #     'tickers_file': 'complete_csi300_tickers.csv',
 #     'start_date': '2014-01-01',
 #     'end_date': '2023-12-31'
@@ -246,4 +233,16 @@ for market, config in market_configs.items():
 #         'start_date': '2000-01-01',
 #         'end_date': '2023-12-31'
 #     },
-#}
+# 'kospi': {
+#         'index_ticker': '^KS11',
+#         'tickers_file': 'complete_kospi_tickers.csv',
+#         'start_date': '2000-01-08',
+#         'end_date': '2023-12-31'
+#     },
+# 'ftse': {
+#         'index_ticker': '^FTSE',
+#         'tickers_file': 'complete_ftse_tickers.csv',
+#         'start_date': '2000-01-05',
+#         'end_date': '2023-12-31'
+#     },
+# }

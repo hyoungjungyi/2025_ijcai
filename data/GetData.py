@@ -7,7 +7,7 @@ csi300_tickers = [str(ticker) for ticker in pd.read_csv('complete_csi300_tickers
 dj30_tickers   = [str(ticker) for ticker in pd.read_csv('complete_dj30_tickers.csv')['ticker'].tolist()]
 kospi_tickers  = [str(ticker) for ticker in pd.read_csv('complete_kospi_tickers.csv')['ticker'].tolist()]
 nasdaq_tickers = [str(ticker) for ticker in pd.read_csv('complete_nasdaq_tickers.csv')['ticker'].tolist()]
-
+ftse_tickers = [str(ticker) for ticker in pd.read_csv('complete_ftse_tickers.csv')['ticker'].tolist()]
 def format_tickers(ticker_list):
     return ", ".join(ticker_list)
 
@@ -15,7 +15,7 @@ print("CSI 300 Tickers:", format_tickers(csi300_tickers))
 print("DJ30 Tickers:",   format_tickers(dj30_tickers))
 print("KOSPI Tickers:",  format_tickers(kospi_tickers))
 print("NASDAQ Tickers:", format_tickers(nasdaq_tickers))
-
+print("FTSE Tickers:", format_tickers(ftse_tickers))
 
 def fetch_and_save_ticker_data(ticker_list,
                                output_csv,
@@ -49,6 +49,7 @@ def fetch_and_save_ticker_data(ticker_list,
     for ticker in ticker_list:
         try:
             stock_data = yf.Ticker(ticker).history(start=start_date, end=end_date, auto_adjust=False)
+            # print(ticker,stock_data.index[-1])
             if stock_data.empty:
                 print(f"No data found for {ticker}, skipping...")
                 continue
@@ -70,7 +71,7 @@ def fetch_and_save_ticker_data(ticker_list,
             stock_data['tic'] = ticker
 
             # datetime 변환 및 TZ 제거
-            stock_data['date'] = pd.to_datetime(stock_data['date'], utc=True).dt.tz_localize(None)
+            stock_data['date'] = pd.to_datetime(stock_data['date'], utc=True).dt.normalize()
 
             all_data.append(stock_data)
 
@@ -87,6 +88,23 @@ def fetch_and_save_ticker_data(ticker_list,
     final_df = pd.concat(all_data, ignore_index=True)
     final_df = final_df[['date', 'tic', 'open', 'close', 'high', 'low', 'adjclose', 'volume']]
     final_df.sort_values(by=['date', 'tic'], inplace=True)
+
+
+
+    # *** 모든 티커가 동일한 날짜 인덱스를 갖도록 재인덱싱 ***
+    # full_dates = pd.date_range(start=final_df['date'].min(), end=final_df['date'].max())
+    # corrected_data = []
+    # for ticker in final_df['tic'].unique():
+    #     tic_df = final_df[final_df['tic'] == ticker].copy()
+    #     tic_df.set_index('date', inplace=True)
+    #     # full_dates로 reindex하고, 결측치는 전일 값(forward fill)으로 채우기
+    #     tic_df = tic_df.reindex(full_dates)
+    #     tic_df = tic_df.fillna(method='ffill')
+    #     tic_df['tic'] = ticker
+    #     tic_df.reset_index(inplace=True)
+    #     tic_df.rename(columns={'index': 'date'}, inplace=True)
+    #     corrected_data.append(tic_df)
+    # final_df = pd.concat(corrected_data, ignore_index=True)
 
     # ----------------------
     # 3) 0% 수익률 과다 종목 제거
@@ -111,7 +129,9 @@ def fetch_and_save_ticker_data(ticker_list,
 
     # 제거 대상 티커 drop
     filtered_df = final_df[~final_df['tic'].isin(removed_tickers)].copy()
-
+    for date, group in filtered_df.groupby('date'):
+        unique_tickers = group['tic'].unique()
+        print(f"날짜: {date}, 티커 개수: {len(unique_tickers)}")
     shape_before_consecutive = filtered_df.shape
 
     # 임시로 drop
@@ -180,46 +200,55 @@ def fetch_and_save_ticker_data(ticker_list,
 # 실제 함수 호출 (시장별 처리)
 # ==============================
 if __name__ == "__main__":
-    threshold_val = 0.2
+    threshold_val = 0.1
 
-    fetch_and_save_ticker_data(
-        ticker_list=csi300_tickers,
-        output_csv="raw_csi300_data_filtered.csv",
-        start_date='2014-01-01',
-        end_date='2023-12-31',
-        threshold=threshold_val,
-        output_filtered_tickers_csv="csi300_kept_tickers.csv",
-        output_removed_tickers_csv="csi300_removed_tickers.csv"
-    )
+    # fetch_and_save_ticker_data(
+    #     ticker_list=csi300_tickers,
+    #     output_csv="raw_csi300_data_filtered.csv",
+    #     start_date='2014-01-01',
+    #     end_date='2023-12-31',
+    #     threshold=threshold_val,
+    #     output_filtered_tickers_csv="csi300_kept_tickers.csv",
+    #     output_removed_tickers_csv="csi300_removed_tickers.csv"
+    # )
+    #
+    # fetch_and_save_ticker_data(
+    #     ticker_list=dj30_tickers,
+    #     output_csv="raw_dj30_data_filtered.csv",
+    #     start_date='2000-01-01',
+    #     end_date='2023-12-31',
+    #     threshold=threshold_val,
+    #     output_filtered_tickers_csv="dj30_kept_tickers.csv",
+    #     output_removed_tickers_csv="dj30_removed_tickers.csv"
+    # )
 
-    fetch_and_save_ticker_data(
-        ticker_list=dj30_tickers,
-        output_csv="raw_dj30_data_filtered.csv",
-        start_date='2000-01-01',
-        end_date='2023-12-31',
-        threshold=threshold_val,
-        output_filtered_tickers_csv="dj30_kept_tickers.csv",
-        output_removed_tickers_csv="dj30_removed_tickers.csv"
-    )
+    # fetch_and_save_ticker_data(
+    #     ticker_list=kospi_tickers,
+    #     output_csv="raw_kospi_data_filtered.csv",
+    #     start_date='2000-01-07',
+    #     end_date='2023-12-31',
+    #     threshold=threshold_val,
+    #     output_filtered_tickers_csv="kospi_kept_tickers.csv",
+    #     output_removed_tickers_csv="kospi_removed_tickers.csv"
+    # )
 
+    # fetch_and_save_ticker_data(
+    #     ticker_list=nasdaq_tickers,
+    #     output_csv="raw_nasdaq_data_filtered.csv",
+    #     start_date='2000-01-05',
+    #     end_date='2023-12-31',
+    #     threshold=threshold_val,
+    #     output_filtered_tickers_csv="nasdaq_kept_tickers.csv",
+    #     output_removed_tickers_csv="nasdaq_removed_tickers.csv"
+    # )
     fetch_and_save_ticker_data(
-        ticker_list=kospi_tickers,
-        output_csv="raw_kospi_data_filtered.csv",
-        start_date='2000-01-07',
-        end_date='2023-12-31',
-        threshold=threshold_val,
-        output_filtered_tickers_csv="kospi_kept_tickers.csv",
-        output_removed_tickers_csv="kospi_removed_tickers.csv"
-    )
-
-    fetch_and_save_ticker_data(
-        ticker_list=nasdaq_tickers,
-        output_csv="raw_nasdaq_data_filtered.csv",
+        ticker_list=ftse_tickers,
+        output_csv="raw_ftse_data_filtered.csv",
         start_date='2000-01-05',
         end_date='2023-12-31',
         threshold=threshold_val,
-        output_filtered_tickers_csv="nasdaq_kept_tickers.csv",
-        output_removed_tickers_csv="nasdaq_removed_tickers.csv"
+        output_filtered_tickers_csv="ftse_kept_tickers.csv",
+        output_removed_tickers_csv="ftse_removed_tickers.csv"
     )
 
     # 최종 확인
@@ -228,7 +257,8 @@ if __name__ == "__main__":
         "raw_csi300_data_filtered.csv",
         "raw_dj30_data_filtered.csv",
         "raw_kospi_data_filtered.csv",
-        "raw_nasdaq_data_filtered.csv"
+        "raw_nasdaq_data_filtered.csv",
+        "raw_ftse_data_filtered.csv"
     ]:
         if os.path.exists(csv_name):
             df_check = pd.read_csv(csv_name)

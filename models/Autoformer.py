@@ -82,6 +82,7 @@ class Model(nn.Module):
             norm_layer=my_Layernorm(configs.d_model),
             projection=nn.Linear(configs.d_model, configs.c_out, bias=True)
         )
+        self.projection_auto = nn.Linear(configs.dec_in,configs.d_model, bias=True)
         self.Temporal = TemporalAttention(configs.dec_in)
         self.projection = nn.Linear(configs.dec_in, configs.c_out, bias=True)
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec,
@@ -102,9 +103,12 @@ class Model(nn.Module):
                                                  trend=trend_init)
         # final
         dec_out = trend_part + seasonal_part
+
         if self.configs.moe_train:
-            dec_out = self.projection(dec_out[:, -self.pred_len:, :]).squeeze(-1)
+            dec_out = self.projection_auto(dec_out)
+            return dec_out
         else:
-            dec_out = self.Temporal(dec_out[:, :, :])
-            dec_out = self.projection(dec_out)
+            dec_out = self.Temporal(dec_out)  # [B, out_len, d_model]
+            dec_out = self.projection(dec_out)  # [B, out_len, c_out]
+
         return dec_out

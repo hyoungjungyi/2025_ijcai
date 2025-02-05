@@ -38,6 +38,9 @@ class YfinancePreprocessor:
         print(f"Loading data from {self.input_path}...")
         df = pd.read_csv(self.input_path)
 
+        for date, group in df.groupby('date'):
+            unique_tickers = group['tic'].unique()
+            print(f"날짜: {date}, 티커 개수: {len(unique_tickers)}")
         # 기존 데이터에 feature 추가
         print("Generating features...")
         df = self.make_feature(df)
@@ -50,31 +53,47 @@ class YfinancePreprocessor:
         else:
             print("Output path not provided.")
 
-
-
-
 config_list = [
 
-    {
-        'input_path': 'raw_kospi_data_filtered.csv',
-        'output_path': 'kospi_general_data.csv'
-
-    },
-    {
-        'input_path': 'raw_nasdaq_data_filtered.csv',
-        'output_path': 'nasdaq_general_data.csv'
-
-    },{
-'input_path': 'raw_csi300_data_filtered.csv',
-'output_path': 'csi300_general_data.csv'
-
-}, {
-    'input_path': 'raw_dj30_data_filtered.csv',
-    'output_path': 'dj30_general_data.csv'
+{
+    'input_path': 'raw_ftse_data_filtered.csv',
+    'output_path': 'ftse_general_data.csv'
 
 },
 
+
 ]
+
+
+
+# config_list = [
+#
+#     {
+#         'input_path': 'raw_kospi_data_filtered.csv',
+#         'output_path': 'kospi_general_data.csv'
+#
+#     },
+#     {
+#         'input_path': 'raw_nasdaq_data_filtered.csv',
+#         'output_path': 'nasdaq_general_data.csv'
+#
+#     },{
+# 'input_path': 'raw_csi300_data_filtered.csv',
+# 'output_path': 'csi300_general_data.csv'
+#
+# }, {
+#     'input_path': 'raw_dj30_data_filtered.csv',
+#     'output_path': 'dj30_general_data.csv'
+#
+# },
+# {
+#     'input_path': 'raw_ftse_data_filtered.csv',
+#     'output_path': 'ftse_general_data.csv'
+#
+# },
+#
+#
+# ]
 
 # 데이터 처리 실행
 for config in config_list:

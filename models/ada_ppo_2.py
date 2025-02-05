@@ -59,8 +59,12 @@ class ADA_PPO(nn.Module):
         )
 
         # 각 거래 기간별 포트폴리오 할당을 위한 Actor-Critic 레이어들
-        self.layer_mu = nn.Linear(self.pred_len, 1)
-        self.layer_std = nn.Linear(self.pred_len, 1)
+        self.layer_mu = nn.ModuleList([
+            nn.Linear(self.pred_len, 1) for _ in self.periods
+        ])
+        self.layer_std = nn.ModuleList([
+            nn.Linear(self.pred_len, 1) for _ in self.periods
+        ])
         self.layer_value = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(self.pred_len, 128),
@@ -82,40 +86,67 @@ class ADA_PPO(nn.Module):
         selection_probs = F.softmax(horizon_logits, dim=1) + epsilon
         selection_probs = selection_probs / selection_probs.sum(dim=1, keepdim=True)
         selection_dist = Categorical(selection_probs)
-        horizon_entropy = selection_dist.entropy()
-
+        selection_entropy = selection_dist.entropy()
 
         if (not self.training) or self.deterministic:
-            selected_horizon = torch.argmax(selection_probs, dim=1)  # [N]
+            # 평가 시 (deterministic): 가장 높은 확률을 가진 거래 기간 선택
+            selected_period_indices = torch.argmax(selection_probs, dim=1)  # [N]
         else:
-            selected_horizon = selection_dist.sample()
-        unique_vals, counts = selected_horizon.unique(return_counts=True)
-        final_idx = unique_vals[counts.argmax()]
-            # --- 포트폴리오 할당을 위한 분리된 처리 ---
+            # 학습 시: 확률 분포에서 샘플링
+            selected_period_indices = selection_dist.sample()  # [N]
+
+        # --- 포트폴리오 할당을 위한 분리된 처리 ---
         # 포트폴리오 할당 head를 통해 별도의 표현 산출
         portfolio_repr = self.portfolio_head(shared_features)  # shape: [N, pred_len]
-        mu = self.layer_mu(portfolio_repr).squeeze(-1)
-        std = torch.clamp(F.softplus(self.layer_std(portfolio_repr)), min=1e-2).squeeze(-1)
-        # If not training, return deterministic action
-        if (not self.training) or self.deterministic:
-            action = torch.tanh(mu)
-            return action, None, horizon_entropy.mean(), final_idx
 
-        action_dist = Normal(mu, std)
-        raw_action = action_dist.rsample()  # [N]
-        action = torch.tanh(raw_action)
+        N = pred_scores.shape[0]
+        actions = torch.zeros(N, device=pred_scores.device)  # 최종 action을 저장할 변수
+        final_log_prob = torch.zeros(N, device=pred_scores.device)
+        action_entropy_buff = torch.zeros(N, device=pred_scores.device)
 
-        log_prob = action_dist.log_prob(raw_action)
-        log_prob -= torch.log(torch.clamp(1 - action.pow(2), min=1e-5))
-        log_prob = log_prob.squeeze(-1)
+        # Horizon 선택의 log_prob 계산
+        selection_log_prob = selection_dist.log_prob(selected_period_indices)
 
-        horizon_log_prob = selection_dist.log_prob(selected_horizon)  # [N]
-        total_log_prob = horizon_log_prob + log_prob
-        action_entropy = action_dist.entropy()  # [N]
-        total_entropy = (horizon_entropy + action_entropy).mean()
+        # 각 horizon 별로 포트폴리오 할당 분포 계산
+        for i, period in enumerate(self.periods):
+            mask = (selected_period_indices == i)  # [N] boolean mask
+            M = mask.sum()
+            if M == 0:
+                continue
+            # portfolio_repr에서 해당하는 샘플만 선택하여 사용
+            selected_portfolio_repr = portfolio_repr[mask, :]
+            mu = self.layer_mu[i](selected_portfolio_repr).squeeze(-1)  # [M]
+            std = torch.clamp(F.softplus(self.layer_std[i](selected_portfolio_repr)), min=1e-2).squeeze(-1)  # [M]
 
+            dist = Normal(mu, std)
+            if (not self.training) or self.deterministic:
+                # 평가 시: action = tanh(mu)
+                action = torch.tanh(mu).squeeze(-1)
+                real_log_prob = torch.zeros_like(action)
+                action_entropy = torch.zeros_like(action)
+            else:
+                # 학습 시: 샘플링 및 로그 보정 적용
+                action_sample = dist.rsample()  # reparameterization trick
+                action = torch.tanh(action_sample)  # [M]
+                log_prob = dist.log_prob(action_sample)
+                log_prob_tanh_correction = -torch.log(torch.clamp(1 - action.pow(2), min=1e-5))
+                real_log_prob = log_prob + log_prob_tanh_correction
+                action_entropy = dist.entropy()
 
-        return action, total_log_prob.sum(), total_entropy, final_idx
+            actions[mask] = action
+            action_entropy_buff[mask] = action_entropy
+            final_log_prob[mask] = selection_log_prob[mask] + real_log_prob
+
+        vals, counts = selected_period_indices.unique(return_counts=True)
+        max_count = counts.max()
+        tie_mask = (counts == max_count)
+        tie_indices = vals[tie_mask]
+        final_idx = tie_indices.min()
+        total_entropy = (selection_entropy + action_entropy_buff).mean()
+        total_log_prob = final_log_prob.sum()
+        # 추가: 선택된 horizon 중 다수결 등 후처리(필요 시) 적용 가능
+
+        return actions, total_log_prob, total_entropy, final_idx
 
     def value(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         pred_scores = self.model(x_enc, x_mark_enc, x_dec, x_mark_dec)

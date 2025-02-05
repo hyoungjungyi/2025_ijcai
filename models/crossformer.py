@@ -58,7 +58,7 @@ class  Model(nn.Module):
             out_seg_num=(self.pad_out_len // self.seg_len),
             factor=configs.factor
         )
-
+        self.projection_auto = nn.Linear(configs.dec_in, configs.d_model, bias=True)
         self.Temporal = TemporalAttention(configs.dec_in)
         self.projection = nn.Linear(configs.dec_in, configs.c_out, bias=True)
         
@@ -104,8 +104,8 @@ class  Model(nn.Module):
         # (7) proj/TemporalAttention 등 최종 투영
         #     Vanilla Transformer 예시처럼 moe_train 여부로 분기
         if self.configs.moe_train:
-            # 예: [B, out_len, d_model] -> [B, pred_len], 여기서는 마지막 차원 c_out
-            dec_out = self.projection(dec_out[:, -self.out_len:, :]).squeeze(-1)
+            dec_out = self.projection_auto(dec_out)
+            return dec_out
         else:
             dec_out = self.Temporal(dec_out)  # [B, out_len, d_model]
             dec_out = self.projection(dec_out)  # [B, out_len, c_out]

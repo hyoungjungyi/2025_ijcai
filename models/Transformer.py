@@ -68,13 +68,11 @@ class Model(nn.Module):
         dec_out = self.decoder(dec_out, enc_out, x_mask=dec_self_mask, cross_mask=dec_enc_mask)
 
         if self.configs.moe_train:
-            dec_out =  self.projection(dec_out[:,-self.pred_len:,:]).squeeze(-1)
-        else:
-            dec_out = self.Temporal(dec_out)
-            dec_out = self.projection(dec_out)
-
-        if self.output_attention:
-            return dec_out, attns
-        else:
             return dec_out
+        else:
+            dec_out = self.Temporal(dec_out)  # [B, out_len, d_model]
+            dec_out = self.projection(dec_out)  # [B, out_len, c_out]
+
+        return dec_out
+
 
