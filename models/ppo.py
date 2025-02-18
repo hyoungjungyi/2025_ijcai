@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import MultivariateNormal,Normal
-from models import Transformer,Informer,Reformer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer,crossformer,deformableTST
+from models import Transformer,Informer,Reformer,Autoformer,Fedformer,Flowformer,Flashformer,itransformer,crossformer
 
 class TemporalAttention(nn.Module):
     def __init__(self, d_model):

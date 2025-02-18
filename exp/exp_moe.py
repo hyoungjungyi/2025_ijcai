@@ -16,7 +16,7 @@ from utils.backtest import *
 from itertools import tee
 import gc
 import torch.nn.functional as F
-
+from datetime import datetime
 import matplotlib.pyplot as plt
 
 
@@ -297,7 +297,6 @@ class Exp_MOE(Exp_Basic):
                 scores, log_prob, entropy, selected_period_indices = self.model.pi(
                     batch_x, batch_x_mark, dec_inp, batch_y_mark
                 )
-
             current_date = backtest_dataset.unique_dates[i + self.args.seq_len]
             # Select top stocks based on scores
             top_indices = torch.topk(scores, self.args.num_stocks, dim=0).indices
@@ -311,6 +310,7 @@ class Exp_MOE(Exp_Basic):
             portfolio_values.append(env_test.portfolio_value)
             portfolio_dates.append(current_date)
             i += chosen_horizon
+
 
         final_pf = env_test.portfolio_value
         self.logger.info(f"[BackTest] Final Portfolio Value = {final_pf:.4f}")
@@ -350,6 +350,123 @@ class Exp_MOE(Exp_Basic):
         self.wandb.log(log_data)
 
         return final_pf
+    
+    def backtest_demo(self, setting, load=False):
+        """
+        Backtest the trained model using reinforcement learning principles.
+        """
+        if load:
+            best_path = os.path.join(self.args.checkpoints, setting, 'checkpoint.pth')
+            self.model.load_state_dict(torch.load(best_path))
+            self.logger.info(f"Loaded best model from {best_path}")
+
+        # backtest dataset
+        backtest_dataset, _ = self._get_data('backtest')
+        n_data = len(backtest_dataset)
+        self.model.eval()
+
+        env_test = tradingenv.TradingEnvironment(self.args)
+        env_test.reset()
+
+        portfolio_values = [1.0]
+        portfolio_dates = [backtest_dataset.unique_dates[0]]
+        holding_periods=[]
+        tickers = backtest_dataset.df.index.get_level_values('tic').unique().tolist()
+
+        # 상위 5개, 하위 5개 종목 저장할 리스트
+        top_5_tickers = []
+        least_5_tickers = []
+        portfolio_ratios=[]
+
+        i = 0
+        while i < n_data:
+            (batch_x, batch_y, batch_x_mark, batch_y_mark, ground_true) = get_sample(backtest_dataset, i, self.device)
+
+            dec_zeros = torch.zeros_like(batch_y[:, -self.args.pred_len:, :])
+            dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_zeros], dim=1)
+
+            with torch.no_grad():
+                scores, log_prob, entropy, selected_period_indices = self.model.pi(
+                    batch_x, batch_x_mark, dec_inp, batch_y_mark
+                )
+
+            current_date = backtest_dataset.unique_dates[i + self.args.seq_len]
+
+            # ✅ 선택된 포트폴리오 유지 기간 가져오기
+            chosen_horizon = self.horizons[selected_period_indices]
+            holding_periods.append(chosen_horizon)
+
+            # ✅ **상위 5개 & 하위 5개 종목 선택**
+            sorted_indices = torch.argsort(scores, descending=True)  # 점수 높은 순 정렬
+            top_5_indices = sorted_indices[:5]  # 상위 5개
+            least_5_indices = sorted_indices[-5:]  # 하위 5개
+
+            # ✅ **티커 이름 가져오기**
+            top_5 = [tickers[idx] for idx in top_5_indices.cpu().numpy()]
+            least_5 = [tickers[idx] for idx in least_5_indices.cpu().numpy()]
+
+            # ✅ **포트폴리오 비율 저장 (Softmax 비율)**
+            top_5_scores = scores[top_5_indices]
+            top_5_weights = torch.softmax(top_5_scores / self.temperature, dim=0).cpu().numpy()
+            portfolio_ratios.append(str(list(top_5_weights))) 
+
+            # 리스트에 저장 (나중에 CSV에 넣기 위해)
+            top_5_tickers.append(", ".join(top_5))
+            least_5_tickers.append(", ".join(least_5))
+
+            # 포트폴리오 업데이트
+            topk_weights = torch.softmax(scores[top_5_indices] / self.temperature, dim=0)
+            final_weights = torch.zeros_like(scores)
+            final_weights[top_5_indices] = topk_weights
+            returns = ground_true[:, selected_period_indices]
+            reward = env_test.step(final_weights, returns)
+
+            portfolio_values.append(env_test.portfolio_value)
+            portfolio_dates.append(current_date)
+            
+
+            i += chosen_horizon
+   
+
+
+
+        final_pf = env_test.portfolio_value
+
+
+        start_date = backtest_dataset.unique_dates[0]
+        end_date = backtest_dataset.unique_dates[-1]
+
+        csv_path = os.path.join(self.args.root_path, self.args.data_path)
+        raw_data = pd.read_csv(csv_path)
+        raw_data['date'] = pd.to_datetime(raw_data['date']).dt.tz_localize(None)
+        index_name = self._get_market_index_name()
+        index_data = fetch_index_data(index_name, start_date, end_date)
+        folder_path = os.path.join('./results', setting)
+        os.makedirs(folder_path, exist_ok=True)
+
+        # ✅ **CSV 파일에 저장**
+        data_to_save = {
+            "date": portfolio_dates[:-1],  # 마지막 값 제외 (final_pf는 마지막 포트폴리오 값이므로)
+            "model": [self.args.model] * len(portfolio_dates[:-1]),  # 모델명
+            "market": [self.args.market]* len(portfolio_dates[:-1]),
+            "ticker": ["ALL"] * len(portfolio_dates[:-1]),  # 전체 종목 의미
+            "pred_len": holding_periods,
+            "top_5_portfolio": top_5_tickers,
+            "least_5_portfolio": least_5_tickers,
+            "portfolio_ratio":portfolio_ratios,
+            "market": [self.args.market] * len(portfolio_dates[:-1]),  # 시장 정보
+            "Final Portfolio Value": portfolio_values[:-1],
+        }
+        file_name = f"{self.args.model}_{self.args.market}_demo.csv"
+        demo_folder_path = os.path.join(os.getcwd(), "demo_results") 
+        file_path = os.path.join("./demo_results", file_name)
+        portfolio_summary_df = pd.DataFrame(data_to_save)
+        portfolio_summary_df.to_csv(file_path, index=False)
+
+        print(f"✅ portfolio_summary.csv 저장 완료")
+
+        return final_pf
+
 
     def make_batch(self):
         batch_data = {

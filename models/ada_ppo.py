@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal, Categorical
-from models import Transformer, Informer, Reformer, Autoformer, Fedformer, Flowformer, Flashformer, itransformer, crossformer, deformableTST
+from models import Transformer, Informer, Reformer, Autoformer, Fedformer, Flowformer, Flashformer, itransformer, crossformer
 from layers.SelfAttention_Family import TemporalAttention
 import os
 
@@ -19,8 +19,7 @@ class ADA_PPO(nn.Module):
             'Autoformer': Autoformer,
             'Fedformer': Fedformer,
             'itransformer': itransformer,
-            'crossformer': crossformer,
-            'deformableTST': deformableTST
+            'crossformer': crossformer
         }
         self.model = self.model_dict[model_name].Model(configs)
 

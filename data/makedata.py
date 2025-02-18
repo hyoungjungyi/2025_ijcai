@@ -66,34 +66,35 @@ config_list = [
 
 
 
-# config_list = [
-#
-#     {
-#         'input_path': 'raw_kospi_data_filtered.csv',
-#         'output_path': 'kospi_general_data.csv'
-#
-#     },
-#     {
-#         'input_path': 'raw_nasdaq_data_filtered.csv',
-#         'output_path': 'nasdaq_general_data.csv'
-#
-#     },{
-# 'input_path': 'raw_csi300_data_filtered.csv',
-# 'output_path': 'csi300_general_data.csv'
-#
-# }, {
-#     'input_path': 'raw_dj30_data_filtered.csv',
-#     'output_path': 'dj30_general_data.csv'
-#
-# },
-# {
-#     'input_path': 'raw_ftse_data_filtered.csv',
-#     'output_path': 'ftse_general_data.csv'
-#
-# },
-#
-#
-# ]
+config_list = [
+
+    {
+        'input_path': 'raw_kospi_data_filtered.csv',
+        'output_path': 'kospi_general_data.csv'
+
+    },
+    #{
+        #'input_path': 'raw_nasdaq_data_filtered.csv',
+        #'output_path': 'nasdaq_general_data.csv'
+
+    #},
+    {
+'input_path': 'raw_csi300_data_filtered.csv',
+'output_path': 'csi300_general_data.csv'
+
+}, {
+    'input_path': 'raw_dj30_data_filtered.csv',
+    'output_path': 'dj30_general_data.csv'
+
+},
+{
+    'input_path': 'raw_ftse_data_filtered.csv',
+    'output_path': 'ftse_general_data.csv'
+
+},
+
+
+]
 
 # 데이터 처리 실행
 for config in config_list:

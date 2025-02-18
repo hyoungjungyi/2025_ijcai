@@ -1,12 +1,13 @@
 import yfinance as yf
 import pandas as pd
 import os
+from datetime import datetime
 
 # 티커 리스트 불러오기 (필요에 따라 수정)
 csi300_tickers = [str(ticker) for ticker in pd.read_csv('complete_csi300_tickers.csv')['ticker'].tolist()]
 dj30_tickers   = [str(ticker) for ticker in pd.read_csv('complete_dj30_tickers.csv')['ticker'].tolist()]
 kospi_tickers  = [str(ticker) for ticker in pd.read_csv('complete_kospi_tickers.csv')['ticker'].tolist()]
-nasdaq_tickers = [str(ticker) for ticker in pd.read_csv('complete_nasdaq_tickers.csv')['ticker'].tolist()]
+#nasdaq_tickers = [str(ticker) for ticker in pd.read_csv('complete_nasdaq_tickers.csv')['ticker'].tolist()]
 ftse_tickers = [str(ticker) for ticker in pd.read_csv('complete_ftse_tickers.csv')['ticker'].tolist()]
 def format_tickers(ticker_list):
     return ", ".join(ticker_list)
@@ -14,7 +15,7 @@ def format_tickers(ticker_list):
 print("CSI 300 Tickers:", format_tickers(csi300_tickers))
 print("DJ30 Tickers:",   format_tickers(dj30_tickers))
 print("KOSPI Tickers:",  format_tickers(kospi_tickers))
-print("NASDAQ Tickers:", format_tickers(nasdaq_tickers))
+#print("NASDAQ Tickers:", format_tickers(nasdaq_tickers))
 print("FTSE Tickers:", format_tickers(ftse_tickers))
 
 def fetch_and_save_ticker_data(ticker_list,
@@ -199,53 +200,54 @@ def fetch_and_save_ticker_data(ticker_list,
 # ==============================
 # 실제 함수 호출 (시장별 처리)
 # ==============================
+today=datetime.today().date()
 if __name__ == "__main__":
     threshold_val = 0.1
 
-    # fetch_and_save_ticker_data(
-    #     ticker_list=csi300_tickers,
-    #     output_csv="raw_csi300_data_filtered.csv",
-    #     start_date='2014-01-01',
-    #     end_date='2023-12-31',
-    #     threshold=threshold_val,
-    #     output_filtered_tickers_csv="csi300_kept_tickers.csv",
-    #     output_removed_tickers_csv="csi300_removed_tickers.csv"
-    # )
-    #
-    # fetch_and_save_ticker_data(
-    #     ticker_list=dj30_tickers,
-    #     output_csv="raw_dj30_data_filtered.csv",
-    #     start_date='2000-01-01',
-    #     end_date='2023-12-31',
-    #     threshold=threshold_val,
-    #     output_filtered_tickers_csv="dj30_kept_tickers.csv",
-    #     output_removed_tickers_csv="dj30_removed_tickers.csv"
-    # )
+    fetch_and_save_ticker_data(
+         ticker_list=csi300_tickers,
+         output_csv="raw_csi300_data_filtered.csv",
+         start_date='2014-01-01',
+         end_date=today,
+         threshold=threshold_val,
+         output_filtered_tickers_csv="csi300_kept_tickers.csv",
+         output_removed_tickers_csv="csi300_removed_tickers.csv"
+     )
+    
+    fetch_and_save_ticker_data(
+         ticker_list=dj30_tickers,
+         output_csv="raw_dj30_data_filtered.csv",
+         start_date='2000-01-01',
+         end_date=today,
+         threshold=threshold_val,
+         output_filtered_tickers_csv="dj30_kept_tickers.csv",
+         output_removed_tickers_csv="dj30_removed_tickers.csv"
+     )
 
-    # fetch_and_save_ticker_data(
-    #     ticker_list=kospi_tickers,
-    #     output_csv="raw_kospi_data_filtered.csv",
-    #     start_date='2000-01-07',
-    #     end_date='2023-12-31',
-    #     threshold=threshold_val,
-    #     output_filtered_tickers_csv="kospi_kept_tickers.csv",
-    #     output_removed_tickers_csv="kospi_removed_tickers.csv"
-    # )
+    fetch_and_save_ticker_data(
+         ticker_list=kospi_tickers,
+         output_csv="raw_kospi_data_filtered.csv",
+         start_date='2000-01-07',
+         end_date=today,
+         threshold=threshold_val,
+         output_filtered_tickers_csv="kospi_kept_tickers.csv",
+        output_removed_tickers_csv="kospi_removed_tickers.csv"
+     )
 
-    # fetch_and_save_ticker_data(
-    #     ticker_list=nasdaq_tickers,
-    #     output_csv="raw_nasdaq_data_filtered.csv",
-    #     start_date='2000-01-05',
-    #     end_date='2023-12-31',
-    #     threshold=threshold_val,
-    #     output_filtered_tickers_csv="nasdaq_kept_tickers.csv",
-    #     output_removed_tickers_csv="nasdaq_removed_tickers.csv"
-    # )
+    #fetch_and_save_ticker_data(
+         #ticker_list=nasdaq_tickers,
+         #output_csv="raw_nasdaq_data_filtered.csv",
+         #start_date='2000-01-05',
+         #end_date=today,
+         #threshold=threshold_val,
+         #output_filtered_tickers_csv="nasdaq_kept_tickers.csv",
+         #output_removed_tickers_csv="nasdaq_removed_tickers.csv"
+     #)
     fetch_and_save_ticker_data(
         ticker_list=ftse_tickers,
         output_csv="raw_ftse_data_filtered.csv",
         start_date='2000-01-05',
-        end_date='2023-12-31',
+        end_date=today,
         threshold=threshold_val,
         output_filtered_tickers_csv="ftse_kept_tickers.csv",
         output_removed_tickers_csv="ftse_removed_tickers.csv"

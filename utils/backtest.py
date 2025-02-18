@@ -68,7 +68,6 @@ def calculate_portfolio_metrics(portfolio_values, risk_free_rate=0.01, freq="dai
 
 def fetch_index_data(index, start_date, end_date):
     """Fetch index data for a given date range."""
-    print(f"Fetching index data from {start_date} to {end_date}...")
     end_date += pd.Timedelta(days=1)  # Include end date
     index = yf.download(f'{index}', start=pd.to_datetime(start_date), end=pd.to_datetime(end_date))
     index = index[['Close']].reset_index()
@@ -77,10 +76,11 @@ def fetch_index_data(index, start_date, end_date):
     return index
 
 
-def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external_portfolio=None,external_dates=None,pred_len=None,total_periods=None,folder_path=None,dynamic_annual_factor=None ):
+def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external_portfolio=None,external_dates=None,pred_len=None,total_periods=None,folder_path=None,dynamic_annual_factor=None,model=None,market=None ):
     """Run backtest for the given data and date range."""
 
-    data = data[(data['date'] >= start_date) & (data['date'] <= end_date)]
+
+    data = data[(data['date'] >= start_date) & (data['date'] <= end_date)]    
     data['date'] = pd.to_datetime(data['date'])
     def analyze_rebalancing_changes(data, rebalancing_dates):
         """
@@ -270,11 +270,19 @@ def run_backtest(data, index_data, start_date, end_date, fee_rate=0.00, external
     sns.set(style="whitegrid")
     plt.figure(figsize=(14, 8))
 
+    #오류나서 추가함 
+    index_dates = np.array(index_dates).flatten()  # 1차원 변환
+    index_portfolio_values = np.array(index_portfolio_values).flatten()  # 1차원 변환
+
     plt.plot(index_dates, index_portfolio_values, label="Index", color="orange", linestyle="--", linewidth=2)
     plt.plot(data['date'].unique(), bh_portfolio_values, label="Buy-and-Hold", color="purple", linewidth=2)
     plt.plot(data['date'].unique(), daily_portfolio_values, label="Daily Rebalancing", color="blue", linewidth=2,
              linestyle="-")
     if external_portfolio is not None:
+        #오류나서 추가함
+        external_dates = np.array(external_dates).flatten()
+        external_portfolio = np.array(external_portfolio).flatten()
+
         plt.plot(external_dates, external_portfolio, label="External Portfolio", color="cyan", linewidth=2,
                  linestyle="-.")
     plt.plot(weekly_dates_used, weekly_values, label="Weekly Rebalancing", color="green", linewidth=2)
